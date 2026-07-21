@@ -1,0 +1,1908 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graphs·Clone</title>
+<style>
+  :root {
+    --bg: #ECEEF1;
+    --surface: #FFFFFF;
+    --surface-sunken: #F6F7F9;
+    --border: #DDE1E7;
+    --border-strong: #C4CAD3;
+    --ink-1: #1A1F2B;
+    --ink-2: #454C5A;
+    --ink-3: #838B98;
+    --accent: #1668D6;
+    --accent-hover: #0F4EA8;
+    --accent-weak: #E7F0FB;
+    --grid: #EEF0F3;
+    --axis: #AAB1BC;
+    --danger: #C0392B;
+    --danger-bg: #FBEAE8;
+    --font-sans: Inter, system-ui, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--ink-1);
+    background: var(--bg);
+    overflow: hidden;
+  }
+  button, select, input { font-family: inherit; font-size: inherit; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  #app { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+  /* ---- topbar ---- */
+  #topbar {
+    height: 48px; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+    z-index: 30;
+  }
+  .brand { font-size: 15px; font-weight: 600; color: var(--ink-1); letter-spacing: -0.01em; }
+  .topbar-actions { display: flex; gap: 8px; }
+
+  .btn {
+    height: 30px; padding: 0 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: 1px solid transparent; transition: background 120ms ease-out;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { background: var(--border-strong); cursor: not-allowed; }
+  .btn-secondary { background: var(--surface); color: var(--ink-2); border-color: var(--border-strong); }
+  .btn-secondary:hover { background: var(--surface-sunken); }
+
+  /* ---- body layout ---- */
+  #body { flex: 1; display: flex; overflow: hidden; min-height: 0; position: relative; }
+
+  #rail {
+    width: 280px; flex: 0 0 auto; background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0; transition: margin-left 160ms ease-out;
+  }
+  #body.rail-collapsed #rail { margin-left: -280px; }
+
+  #rail-toggle {
+    display: none; flex-shrink: 0; margin-right: 8px;
+    width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--border-strong);
+    background: var(--surface); color: var(--ink-2); cursor: pointer;
+  }
+
+  #data-panel { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; }
+  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--ink-3); text-transform: uppercase; margin-bottom: 8px; }
+  .hint { font-size: 12px; color: var(--ink-3); line-height: 1.5; }
+
+  .ds-block { margin-bottom: 6px; }
+  .ds-header {
+    display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px; border-radius: 4px;
+    cursor: pointer; position: relative;
+  }
+  .ds-header:hover { background: var(--surface-sunken); }
+  .ds-chevron { font-size: 10px; color: var(--ink-3); width: 10px; display: inline-block; flex-shrink: 0; }
+  .ds-name { flex: 1; font-size: 13px; font-weight: 500; color: var(--ink-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ds-name-input {
+    flex: 1; font-size: 13px; font-weight: 500; color: var(--ink-1); border: 1px solid var(--accent);
+    border-radius: 4px; padding: 2px 4px; font-family: var(--font-sans);
+  }
+  .ds-menu-btn {
+    color: var(--ink-3); padding: 2px 6px; font-size: 13px; cursor: pointer; border-radius: 4px;
+    min-width: 24px; min-height: 24px; display: flex; align-items: center; justify-content: center;
+  }
+  .ds-menu-btn:hover { background: var(--border); color: var(--ink-1); }
+
+  .ds-menu {
+    position: fixed; z-index: 60; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; box-shadow: 0 8px 30px rgba(20,24,32,0.18); min-width: 180px; overflow: hidden;
+    font-size: 13px;
+  }
+  .ds-menu button {
+    display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: none;
+    cursor: pointer; color: var(--ink-2);
+  }
+  .ds-menu button:hover { background: var(--surface-sunken); }
+  .ds-menu button.danger { color: var(--danger); }
+
+  .series-row {
+    display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 20px; border-radius: 4px;
+    cursor: pointer; border-left: 2px solid transparent; transition: background 120ms ease-out;
+  }
+  .series-row:hover { background: var(--surface-sunken); }
+  .series-row.selected { background: var(--accent-weak); border-left-color: var(--accent); }
+  .series-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .series-name { flex: 1; font-size: 13px; color: var(--ink-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .series-eye { font-size: 12px; opacity: 0.75; padding: 2px; min-width: 24px; min-height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+  .series-eye:hover { background: var(--border); }
+
+  /* ---- style panel ---- */
+  #style-panel { border-top: 1px solid var(--border); padding: 12px 16px 16px; flex-shrink: 0; max-height: 52vh; overflow-y: auto; }
+  .field { margin-bottom: 14px; }
+  .field-label { font-size: 11px; color: var(--ink-3); margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .field-label .val { font-family: var(--font-mono); color: var(--ink-2); }
+  .ctl-input, .ctl-select {
+    width: 100%; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: #fff;
+    font-size: 12px; color: var(--ink-1); padding: 0 8px; font-family: var(--font-sans);
+  }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  input[type="color"] { width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 4px; padding: 0; cursor: pointer; background: none; }
+  .swatch-row { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; cursor: pointer; border: 1px solid rgba(0,0,0,0.08); }
+  .row-2 { display: flex; gap: 8px; }
+  .row-2 .grow { flex: 1; min-width: 0; }
+  .row-2 .fixed-60 { width: 60px; flex-shrink: 0; }
+  .axis-toggle { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .axis-toggle > div { flex: 1; text-align: center; padding: 5px 0; cursor: pointer; font-size: 12px; color: var(--ink-2); }
+  .axis-toggle > div:first-child { border-right: 1px solid var(--border); }
+  .axis-toggle > div.active { background: var(--accent); color: #fff; }
+  .style-title { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--ink-3); text-transform: uppercase; margin-bottom: 12px; }
+
+  /* ---- graph area ---- */
+  #graph-area { flex: 1; position: relative; background: var(--surface); min-width: 0; overflow: hidden; }
+  #chart { width: 100%; height: 100%; display: block; cursor: crosshair; }
+
+  #empty-state {
+    position: absolute; inset: 0; align-items: center; justify-content: center; background: var(--surface);
+  }
+  #empty-state:not([hidden]) { display: flex; }
+  .empty-box { text-align: center; max-width: 280px; }
+  .empty-icon { width: 40px; height: 40px; margin: 0 auto 16px; border: 1.5px solid var(--border-strong); border-radius: 8px; position: relative; }
+  .empty-icon i { position: absolute; bottom: 8px; background: var(--axis); }
+  .empty-title { font-size: 15px; font-weight: 600; color: var(--ink-1); margin-bottom: 6px; }
+  .empty-sub { font-size: 13px; color: var(--ink-3); margin-bottom: 16px; line-height: 1.5; }
+
+  /* ---- status bar ---- */
+  #statusbar {
+    height: 28px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px; background: var(--surface-sunken); border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 12px; color: var(--ink-1);
+  }
+  #status-hint { color: var(--ink-3); font-family: var(--font-sans); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #save-status { color: var(--accent); font-family: var(--font-sans); font-size: 11px; white-space: nowrap; }
+
+  /* ---- popover réglages ---- */
+  .popover {
+    position: fixed; z-index: 60; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; box-shadow: 0 8px 30px rgba(20,24,32,0.18); width: 240px; padding: 12px 14px;
+  }
+  .popover .field:last-child { margin-bottom: 0; }
+  .popover label.check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+
+  /* ---- modal ---- */
+  #modal-backdrop {
+    position: fixed; inset: 0; background: rgba(20,24,32,0.35); display: flex; align-items: center;
+    justify-content: center; z-index: 100;
+  }
+  #modal-backdrop[hidden] { display: none; }
+  .modal {
+    background: #fff; border-radius: 6px; width: 640px; max-width: 92vw; max-height: 88vh;
+    box-shadow: 0 8px 30px rgba(20,24,32,0.18); overflow: hidden; display: flex; flex-direction: column;
+    animation: modal-in 160ms ease-out;
+  }
+  @keyframes modal-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .modal { animation: none; } }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 600; color: var(--ink-1); flex-shrink: 0; }
+  .modal-body { padding: 16px 20px; overflow-y: auto; }
+  .modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+
+  .settings-row { display: flex; gap: 12px; margin-bottom: 14px; }
+  .settings-row .grow { flex: 1; }
+  .field-mini-label { font-size: 11px; color: var(--ink-3); margin-bottom: 4px; }
+  .header-check { flex-shrink: 0; display: flex; align-items: flex-end; padding-bottom: 5px; gap: 6px; }
+
+  .preview-wrap { border: 1px solid var(--border); border-radius: 6px; overflow: auto; margin-bottom: 14px; max-height: 220px; }
+  table.preview { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.preview thead tr { background: var(--surface-sunken); }
+  table.preview th { text-align: left; padding: 6px 10px; font-weight: 600; color: var(--ink-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.preview td { padding: 5px 10px; font-family: var(--font-mono); color: var(--ink-1); border-bottom: 1px solid var(--grid); white-space: nowrap; }
+
+  .col-select-row { display: flex; gap: 20px; margin-bottom: 14px; }
+  .col-select-row .grow { flex: 1; }
+  .radio-line, .check-line { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .radio-line label, .check-line label { font-size: 12px; color: var(--ink-2); cursor: pointer; }
+
+  .error-banner { margin-top: 10px; padding: 10px 12px; background: var(--danger-bg); border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 12px; }
+
+  @media (max-width: 900px) {
+    #rail-toggle { display: flex; align-items: center; justify-content: center; }
+    #body.rail-collapsed #rail { margin-left: -280px; }
+    #rail { position: absolute; top: 0; bottom: 0; left: 0; z-index: 25; box-shadow: 0 0 0 rgba(0,0,0,0); }
+    #body:not(.rail-collapsed) #rail { box-shadow: 4px 0 16px rgba(20,24,32,0.12); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div style="display:flex; align-items:center;">
+      <button id="rail-toggle" title="Afficher/masquer le panneau" aria-label="Afficher/masquer le panneau">☰</button>
+      <div class="brand">Graphs·Clone</div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-import" class="btn btn-primary">Importer CSV</button>
+      <button id="btn-project" class="btn btn-secondary">Projet ▾</button>
+      <button id="btn-export" class="btn btn-secondary">Export PNG</button>
+      <button id="btn-settings" class="btn btn-secondary" title="Affichage" aria-label="Affichage" style="padding:0 10px; font-size:15px; line-height:1;">⚙</button>
+    </div>
+  </header>
+
+  <div id="body">
+    <aside id="rail">
+      <div id="data-panel">
+        <div class="eyebrow">Données</div>
+        <div id="dataset-list"></div>
+        <div id="data-empty-hint" class="hint" hidden>Vos jeux de données apparaîtront ici.</div>
+      </div>
+      <div id="style-panel"></div>
+    </aside>
+
+    <main id="graph-area">
+      <canvas id="chart"></canvas>
+      <div id="empty-state" hidden>
+        <div class="empty-box">
+          <div class="empty-icon">
+            <i style="left:8px;right:8px;height:1px;"></i>
+            <i style="left:12px;width:2px;height:10px;"></i>
+            <i style="left:18px;width:2px;height:16px;"></i>
+            <i style="left:24px;width:2px;height:6px;"></i>
+          </div>
+          <div class="empty-title">Aucune donnée</div>
+          <div class="empty-sub">Importez un CSV pour tracer vos courbes.</div>
+          <button id="btn-import-empty" class="btn btn-primary">Importer CSV</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer id="statusbar">
+    <span id="status-coords">x = —      y = —</span>
+    <div style="display:flex; align-items:center; gap:16px; min-width:0;">
+      <span id="save-status"></span>
+      <span id="status-hint">molette : zoom · glisser : pan · maj+glisser : zoom boîte · double-clic : ajuster</span>
+    </div>
+  </footer>
+
+  <input type="file" id="file-input" accept=".csv,.txt,.tsv" multiple hidden>
+  <input type="file" id="project-input" accept=".json" hidden>
+
+  <div id="modal-backdrop" hidden>
+    <div class="modal" id="import-modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =========================================================
+     Constantes
+  ========================================================= */
+  const PALETTE = ['#4269D0','#F4A11E','#E15759','#26A69A','#59A14F','#B07AA1','#9C755F','#7AA6FF','#D37295','#79797F'];
+  const DASH_PATTERNS = { plein: [], tirets: [8,5], pointilles: [2,4], 'tiret-point': [10,4,2,4] };
+  const MARKER_TYPES = ['aucun','cercle','carre','triangle','croix','losange'];
+  const SEP_CANDIDATES = [';', ',', '\t'];
+
+  /* =========================================================
+     État applicatif
+  ========================================================= */
+  const state = {
+    datasets: [],          // Dataset[]
+    nextDatasetNum: 1,
+    paletteCursor: 0,
+    selectedKey: null,     // "datasetId:seriesId"
+    view: null,            // {xMin,xMax,yMinL,yMaxL} ou null = auto
+    hover: null,            // {mx,my} coords canvas (CSS px)
+    dragStart: null,        // {mx,my,mode:'pan'|'box'}
+    dragNow: null,
+    showCrosshair: true,
+    labelFontSize: 12,     // taille des libellés d'axes (ticks + titres), en px
+    railCollapsed: false,
+    importQueue: [],        // fichiers en attente d'import
+    importState: null,      // état du dialogue en cours
+  };
+
+  let datasetMenuOpenFor = null;
+
+  /* =========================================================
+     Utilitaires numériques
+  ========================================================= */
+  function niceNum(range, round) {
+    if (range <= 0) range = 1;
+    const exponent = Math.floor(Math.log10(range));
+    const fraction = range / Math.pow(10, exponent);
+    let niceFraction;
+    if (round) {
+      if (fraction < 1.5) niceFraction = 1;
+      else if (fraction < 3) niceFraction = 2;
+      else if (fraction < 7) niceFraction = 5;
+      else niceFraction = 10;
+    } else {
+      if (fraction <= 1) niceFraction = 1;
+      else if (fraction <= 2) niceFraction = 2;
+      else if (fraction <= 5) niceFraction = 5;
+      else niceFraction = 10;
+    }
+    return niceFraction * Math.pow(10, exponent);
+  }
+
+  function niceTicks(min, max, maxTicks) {
+    maxTicks = maxTicks || 6;
+    if (!isFinite(min) || !isFinite(max)) return { ticks: [0, 1], spacing: 1 };
+    if (min === max) { min -= 1; max += 1; }
+    const range = niceNum(max - min, false);
+    const spacing = niceNum(range / (maxTicks - 1), true);
+    const niceMin = Math.floor(min / spacing) * spacing;
+    const niceMax = Math.ceil(max / spacing) * spacing;
+    const ticks = [];
+    for (let v = niceMin; v <= niceMax + spacing * 0.5; v += spacing) {
+      ticks.push(Math.abs(v) < spacing / 1e6 ? 0 : +v.toFixed(10));
+    }
+    return { ticks, spacing };
+  }
+
+  function decimalsForSpacing(spacing) {
+    if (spacing <= 0) return 2;
+    const d = -Math.floor(Math.log10(spacing));
+    return Math.max(0, Math.min(6, d));
+  }
+
+  function formatTick(v, spacing) {
+    const d = decimalsForSpacing(spacing);
+    return (Object.is(v, -0) ? 0 : v).toFixed(d);
+  }
+
+  function fmt3(v) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return v.toFixed(3);
+  }
+
+  /* =========================================================
+     Parsing CSV
+  ========================================================= */
+  function splitLines(text) {
+    return text.split(/\r\n|\r|\n/);
+  }
+
+  function detectSeparator(lines) {
+    let best = null, bestScore = -1;
+    for (const c of SEP_CANDIDATES) {
+      const sample = lines.slice(0, 12);
+      const counts = sample.map(l => l.split(c).length - 1).filter(n => n > 0);
+      if (!counts.length) continue;
+      const freq = {};
+      counts.forEach(n => freq[n] = (freq[n] || 0) + 1);
+      let modeCount = 0, modeVal = 0;
+      for (const k in freq) { if (freq[k] > modeCount) { modeCount = freq[k]; modeVal = +k; } }
+      const score = modeCount * 10 + modeVal;
+      if (score > bestScore) { bestScore = score; best = c; }
+    }
+    return best || 'space';
+  }
+
+  function splitRow(line, sep) {
+    if (sep === 'space') return line.trim().split(/\s+/);
+    return line.split(sep).map(s => s.trim());
+  }
+
+  function parseNumber(tok, decimal) {
+    if (tok === undefined || tok === null) return NaN;
+    let s = String(tok).trim();
+    if (s === '') return NaN;
+    if (decimal === ',') s = s.replace(/\./g, '').replace(',', '.');
+    return parseFloat(s);
+  }
+
+  function isNumericTok(tok, decimal) {
+    if (tok === undefined || String(tok).trim() === '') return false;
+    return !isNaN(parseNumber(tok, decimal));
+  }
+
+  function analyzeCsv(rawText, opts) {
+    // opts: { separator, decimal, header } — any peut être null pour auto-détection
+    const allLines = splitLines(rawText).filter(l => l.trim() !== '' && !l.trim().startsWith('#'));
+    const separator = opts.separator || detectSeparator(allLines);
+    const decimal = opts.decimal || (separator === ';' ? ',' : '.');
+
+    const rows = allLines.map(l => splitRow(l, separator));
+    const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
+
+    let header = opts.header;
+    if (header === null || header === undefined) {
+      const first = rows[0] || [];
+      header = first.length > 0 && first.some(tok => tok !== '' && !isNumericTok(tok, decimal));
+    }
+
+    let headers, dataRows;
+    if (header && rows.length) {
+      headers = rows[0].slice();
+      while (headers.length < width) headers.push('');
+      dataRows = rows.slice(1);
+    } else {
+      headers = [];
+      for (let i = 0; i < width; i++) headers.push('Col' + (i + 1));
+      dataRows = rows;
+    }
+    headers = headers.map((h, i) => h && h.trim() ? h.trim() : 'Col' + (i + 1));
+
+    const cols = [];
+    for (let c = 0; c < width; c++) cols.push(dataRows.map(r => (r[c] !== undefined ? r[c] : '')));
+
+    const numericFlags = cols.map(col => {
+      if (!col.length) return false;
+      let numCount = 0;
+      col.forEach(tok => { if (isNumericTok(tok, decimal)) numCount++; });
+      return col.length > 0 && (numCount / col.length) >= 0.8;
+    });
+
+    return { separator, decimal, header, headers, cols, dataRows, numericFlags, width };
+  }
+
+  function columnNumericValues(cols, idx, decimal) {
+    if (idx < 0 || !cols[idx]) return [];
+    return cols[idx].map(tok => parseNumber(tok, decimal));
+  }
+
+  /* =========================================================
+     Modèle : datasets / séries
+  ========================================================= */
+  function nextColor() {
+    const c = PALETTE[state.paletteCursor % PALETTE.length];
+    state.paletteCursor++;
+    return c;
+  }
+
+  function makeSeries(colIdx, name, datasetId, x, y, color) {
+    return {
+      id: 's' + colIdx + '_' + Math.random().toString(36).slice(2, 8),
+      colIdx, nom: name, datasetId, x, y,
+      visible: true, couleur: color, epaisseur: 1.5, styleTrait: 'plein',
+      marqueur: 'aucun', tailleMarqueur: 4, densiteMarqueur: 1, opacite: 100, axeY: 'gauche',
+    };
+  }
+
+  function buildDatasetFromAnalysis(analysis, meta) {
+    const decimal = analysis.decimal;
+    const xIdx = meta.xIdx;
+    const yIdxs = meta.yIdxs;
+    const xValsRaw = columnNumericValues(analysis.cols, xIdx, decimal);
+    const ds = {
+      id: meta.id || ('ds' + (state.nextDatasetNum++)),
+      nom: meta.nom,
+      source: meta.source || '',
+      rawTexte: analysis.rawText || '',
+      separator: analysis.separator, decimal: analysis.decimal, header: analysis.header,
+      headers: analysis.headers.slice(),
+      cols: analysis.cols,
+      xIdx, yIdxs: yIdxs.slice(),
+      expanded: true,
+      series: [],
+    };
+    yIdxs.forEach(yIdx => {
+      const yValsRaw = columnNumericValues(analysis.cols, yIdx, decimal);
+      const xs = [], ys = [];
+      for (let i = 0; i < yValsRaw.length; i++) {
+        const xv = xValsRaw[i], yv = yValsRaw[i];
+        if (isFinite(xv) && isFinite(yv)) { xs.push(xv); ys.push(yv); }
+      }
+      // Styles conservés d'une session/édition précédente, repérés par index de colonne
+      // (et non par nom, qui peut avoir été modifié par l'utilisateur).
+      const existing = meta.stylesByCol && meta.stylesByCol[yIdx];
+      const s = makeSeries(
+        yIdx,
+        existing && existing.nom ? existing.nom : analysis.headers[yIdx],
+        ds.id, xs, ys,
+        existing && existing.couleur ? existing.couleur : nextColor()
+      );
+      if (existing) Object.assign(s, {
+        visible: existing.visible !== false, epaisseur: existing.epaisseur, styleTrait: existing.styleTrait,
+        marqueur: existing.marqueur, tailleMarqueur: existing.tailleMarqueur,
+        densiteMarqueur: existing.densiteMarqueur, opacite: existing.opacite, axeY: existing.axeY,
+      });
+      ds.series.push(s);
+    });
+    return ds;
+  }
+
+  function allSeries() {
+    const out = [];
+    state.datasets.forEach(ds => ds.series.forEach(s => out.push(s)));
+    return out;
+  }
+
+  function findSeries(key) {
+    if (!key) return null;
+    const [dsId, sId] = key.split(':');
+    const ds = state.datasets.find(d => d.id === dsId);
+    if (!ds) return null;
+    const s = ds.series.find(x => x.id === sId);
+    return s ? { ds, s } : null;
+  }
+
+  function selectedSeries() { return findSeries(state.selectedKey); }
+
+  /* =========================================================
+     Rendu — panneau Données
+  ========================================================= */
+  const dsListEl = document.getElementById('dataset-list');
+  const dataEmptyHint = document.getElementById('data-empty-hint');
+
+  function closeDatasetMenu() {
+    const el = document.querySelector('.ds-menu');
+    if (el) el.remove();
+    datasetMenuOpenFor = null;
+  }
+
+  function renderDataPanel() {
+    dsListEl.innerHTML = '';
+    dataEmptyHint.hidden = state.datasets.length > 0;
+
+    state.datasets.forEach(ds => {
+      const block = document.createElement('div');
+      block.className = 'ds-block';
+
+      const header = document.createElement('div');
+      header.className = 'ds-header';
+
+      const chevron = document.createElement('span');
+      chevron.className = 'ds-chevron';
+      chevron.textContent = ds.expanded ? '▾' : '▸';
+      header.appendChild(chevron);
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'ds-name';
+      nameEl.textContent = ds.nom;
+      header.appendChild(nameEl);
+
+      const menuBtn = document.createElement('span');
+      menuBtn.className = 'ds-menu-btn';
+      menuBtn.title = 'Renommer · Ré-éditer colonnes · Supprimer';
+      menuBtn.textContent = '⋮';
+      menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDatasetMenu(ds, menuBtn);
+      });
+      header.appendChild(menuBtn);
+
+      header.addEventListener('click', () => {
+        ds.expanded = !ds.expanded;
+        renderDataPanel();
+      });
+      block.appendChild(header);
+
+      if (ds.expanded) {
+        ds.series.forEach(s => {
+          const key = ds.id + ':' + s.id;
+          const row = document.createElement('div');
+          row.className = 'series-row' + (state.selectedKey === key ? ' selected' : '');
+
+          const dot = document.createElement('span');
+          dot.className = 'series-dot';
+          dot.style.background = s.couleur;
+          dot.style.opacity = s.visible ? '1' : '0.4';
+          row.appendChild(dot);
+
+          const nm = document.createElement('span');
+          nm.className = 'series-name';
+          nm.textContent = s.nom;
+          nm.style.opacity = s.visible ? '1' : '0.4';
+          row.appendChild(nm);
+
+          const eye = document.createElement('span');
+          eye.className = 'series-eye';
+          eye.textContent = s.visible ? '👁' : '🙈';
+          eye.addEventListener('click', (e) => {
+            e.stopPropagation(); // ne pas sélectionner la ligne — donc markDirty explicite
+            s.visible = !s.visible;
+            renderDataPanel();
+            renderChart();
+            markDirty();
+          });
+          row.appendChild(eye);
+
+          row.addEventListener('click', () => {
+            state.selectedKey = key;
+            renderDataPanel();
+            renderStylePanel();
+          });
+
+          block.appendChild(row);
+        });
+      }
+
+      dsListEl.appendChild(block);
+    });
+  }
+
+  // Menu déroulant générique, ancré sous un élément. Utilisé pour le menu
+  // d'un jeu de données comme pour le menu « Projet » de la barre supérieure.
+  function openMenuAt(anchorEl, items) {
+    closeDatasetMenu();
+    const rect = anchorEl.getBoundingClientRect();
+    const menu = document.createElement('div');
+    menu.className = 'ds-menu';
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.left = Math.min(rect.left, window.innerWidth - 210) + 'px';
+    items.forEach(it => {
+      const b = document.createElement('button');
+      b.textContent = it.label;
+      if (it.danger) b.className = 'danger';
+      b.addEventListener('click', () => { closeDatasetMenu(); it.action(); });
+      menu.appendChild(b);
+    });
+    document.body.appendChild(menu);
+    return menu;
+  }
+
+  function openDatasetMenu(ds, anchorEl) {
+    openMenuAt(anchorEl, [
+      { label: 'Renommer', action: () => startRenameDataset(ds) },
+      { label: 'Ré-éditer colonnes', action: () => openReeditDialog(ds) },
+      { label: 'Supprimer', danger: true, action: () => {
+        if (confirm('Supprimer le jeu de données « ' + ds.nom + ' » et ses séries ?')) deleteDataset(ds.id);
+      } },
+    ]);
+    datasetMenuOpenFor = ds.id;
+  }
+
+  function startRenameDataset(ds) {
+    const block = [...dsListEl.children][state.datasets.indexOf(ds)];
+    const header = block.querySelector('.ds-header');
+    const nameEl = header.querySelector('.ds-name');
+    const input = document.createElement('input');
+    input.className = 'ds-name-input';
+    input.value = ds.nom;
+    header.replaceChild(input, nameEl);
+    input.focus();
+    input.select();
+    // On remplace uniquement le champ par son libellé, sans reconstruire le panneau :
+    // un rebuild sur blur avalerait le clic qui a provoqué ce blur (voir renderStylePanel).
+    let done = false;
+    function restoreLabel(save) {
+      if (done) return;
+      done = true;
+      if (save) {
+        const v = input.value.trim();
+        if (v) ds.nom = v;
+      }
+      const span = document.createElement('span');
+      span.className = 'ds-name';
+      span.textContent = ds.nom;
+      if (input.parentNode) input.parentNode.replaceChild(span, input);
+      if (save) markDirty();
+    }
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { restoreLabel(true); e.stopPropagation(); }
+      else if (e.key === 'Escape') { restoreLabel(false); e.stopPropagation(); }
+    });
+    input.addEventListener('blur', () => restoreLabel(true));
+    input.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  function deleteDataset(dsId) {
+    state.datasets = state.datasets.filter(d => d.id !== dsId);
+    if (state.selectedKey && state.selectedKey.startsWith(dsId + ':')) state.selectedKey = null;
+    state.view = null;
+    renderAll();
+    markDirty();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (document.querySelector('.ds-menu') && !e.target.closest('.ds-menu')) closeDatasetMenu();
+    if (document.querySelector('.popover') && !e.target.closest('.popover')) closePopover();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeDatasetMenu(); closePopover(); }
+  });
+
+  // Toute interaction dans les panneaux latéraux est une modification à sauvegarder.
+  dsListEl.addEventListener('click', markDirty);
+  document.getElementById('style-panel').addEventListener('input', markDirty);
+  document.getElementById('style-panel').addEventListener('change', markDirty);
+  document.getElementById('style-panel').addEventListener('click', markDirty);
+
+  /* =========================================================
+     Rendu — panneau Style
+  ========================================================= */
+  const stylePanelEl = document.getElementById('style-panel');
+
+  function renderStylePanel() {
+    const found = selectedSeries();
+    stylePanelEl.innerHTML = '';
+    if (!found) {
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.textContent = 'Sélectionnez une courbe pour la personnaliser.';
+      stylePanelEl.appendChild(hint);
+      return;
+    }
+    const { s } = found;
+
+    const title = document.createElement('div');
+    title.className = 'style-title';
+    title.textContent = 'Style · ' + s.nom;
+    stylePanelEl.appendChild(title);
+
+    // Couleur
+    stylePanelEl.appendChild(fieldWrap('Couleur', (wrap) => {
+      const row = document.createElement('div');
+      row.style.display = 'flex'; row.style.alignItems = 'center'; row.style.gap = '8px';
+      const picker = document.createElement('input');
+      picker.type = 'color'; picker.value = s.couleur;
+      picker.addEventListener('input', () => { s.couleur = picker.value; renderDataPanel(); renderStylePanel(); renderChart(); });
+      row.appendChild(picker);
+      const swRow = document.createElement('div');
+      swRow.className = 'swatch-row';
+      PALETTE.forEach(hex => {
+        const sw = document.createElement('span');
+        sw.className = 'swatch'; sw.style.background = hex;
+        sw.addEventListener('click', () => { s.couleur = hex; renderDataPanel(); renderStylePanel(); renderChart(); });
+        swRow.appendChild(sw);
+      });
+      row.appendChild(swRow);
+      wrap.appendChild(row);
+    }));
+
+    // Épaisseur
+    stylePanelEl.appendChild(fieldWrap('Épaisseur', (wrap, labelValEl) => {
+      labelValEl.textContent = s.epaisseur.toFixed(1) + ' px';
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = '0.5'; range.max = '5'; range.step = '0.5'; range.value = s.epaisseur;
+      range.addEventListener('input', () => {
+        s.epaisseur = parseFloat(range.value);
+        labelValEl.textContent = s.epaisseur.toFixed(1) + ' px';
+        renderChart();
+      });
+      wrap.appendChild(range);
+    }));
+
+    // Style de trait + aperçu
+    const dashField = document.createElement('div');
+    dashField.className = 'field row-2';
+    const dashCol = document.createElement('div'); dashCol.className = 'grow';
+    dashCol.appendChild(miniLabel('Style de trait'));
+    const dashSel = document.createElement('select'); dashSel.className = 'ctl-select';
+    [['plein','Plein'],['tirets','Tirets'],['pointilles','Pointillés'],['tiret-point','Tiret-point']].forEach(([v,l]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = l; if (s.styleTrait === v) o.selected = true;
+      dashSel.appendChild(o);
+    });
+    dashCol.appendChild(dashSel);
+    dashField.appendChild(dashCol);
+    const previewWrap = document.createElement('div');
+    previewWrap.style.cssText = 'width:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = 40; previewCanvas.height = 16;
+    previewCanvas.style.width = '40px'; previewCanvas.style.height = '16px';
+    previewWrap.appendChild(previewCanvas);
+    dashField.appendChild(previewWrap);
+    stylePanelEl.appendChild(dashField);
+    function drawDashPreview() {
+      const ctx = previewCanvas.getContext('2d');
+      ctx.clearRect(0,0,40,16);
+      ctx.strokeStyle = s.couleur; ctx.lineWidth = 2;
+      ctx.setLineDash(DASH_PATTERNS[s.styleTrait]);
+      ctx.beginPath(); ctx.moveTo(2,8); ctx.lineTo(38,8); ctx.stroke();
+    }
+    drawDashPreview();
+    dashSel.addEventListener('change', () => { s.styleTrait = dashSel.value; drawDashPreview(); renderChart(); });
+
+    // Marqueur + taille + densité
+    const mkField = document.createElement('div');
+    mkField.className = 'field row-2';
+    const mkCol = document.createElement('div'); mkCol.className = 'grow';
+    mkCol.appendChild(miniLabel('Marqueur'));
+    const mkSel = document.createElement('select'); mkSel.className = 'ctl-select';
+    [['aucun','Aucun'],['cercle','Cercle'],['carre','Carré'],['triangle','Triangle'],['croix','Croix'],['losange','Losange']].forEach(([v,l]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = l; if (s.marqueur === v) o.selected = true;
+      mkSel.appendChild(o);
+    });
+    mkSel.addEventListener('change', () => { s.marqueur = mkSel.value; renderChart(); });
+    mkCol.appendChild(mkSel);
+    mkField.appendChild(mkCol);
+
+    const sizeCol = document.createElement('div'); sizeCol.className = 'fixed-60';
+    sizeCol.appendChild(miniLabel('Taille'));
+    const sizeInput = document.createElement('input');
+    sizeInput.type = 'number'; sizeInput.min = '2'; sizeInput.max = '10'; sizeInput.value = s.tailleMarqueur;
+    sizeInput.className = 'ctl-input'; sizeInput.style.fontFamily = 'var(--font-mono)';
+    sizeInput.addEventListener('input', () => { s.tailleMarqueur = parseFloat(sizeInput.value) || 4; renderChart(); });
+    sizeCol.appendChild(sizeInput);
+    mkField.appendChild(sizeCol);
+
+    const densCol = document.createElement('div'); densCol.className = 'fixed-60';
+    densCol.appendChild(miniLabel('Densité'));
+    const densInput = document.createElement('input');
+    densInput.type = 'number'; densInput.min = '1'; densInput.value = s.densiteMarqueur;
+    densInput.className = 'ctl-input'; densInput.style.fontFamily = 'var(--font-mono)';
+    densInput.addEventListener('input', () => { s.densiteMarqueur = Math.max(1, parseInt(densInput.value) || 1); renderChart(); });
+    densCol.appendChild(densInput);
+    mkField.appendChild(densCol);
+
+    stylePanelEl.appendChild(mkField);
+
+    // Opacité
+    stylePanelEl.appendChild(fieldWrap('Opacité', (wrap, labelValEl) => {
+      labelValEl.textContent = s.opacite + ' %';
+      const range = document.createElement('input');
+      range.type = 'range'; range.min = '0'; range.max = '100'; range.step = '5'; range.value = s.opacite;
+      range.addEventListener('input', () => {
+        s.opacite = parseInt(range.value);
+        labelValEl.textContent = s.opacite + ' %';
+        renderChart();
+      });
+      wrap.appendChild(range);
+    }));
+
+    // Axe Y
+    const axisField = document.createElement('div'); axisField.className = 'field';
+    axisField.appendChild(miniLabel('Axe Y'));
+    const toggle = document.createElement('div'); toggle.className = 'axis-toggle';
+    const leftBtn = document.createElement('div'); leftBtn.textContent = 'Primaire';
+    const rightBtn = document.createElement('div'); rightBtn.textContent = 'Secondaire';
+    if (s.axeY === 'gauche') leftBtn.classList.add('active'); else rightBtn.classList.add('active');
+    leftBtn.addEventListener('click', () => { s.axeY = 'gauche'; renderStylePanel(); renderChart(); });
+    rightBtn.addEventListener('click', () => { s.axeY = 'droite'; renderStylePanel(); renderChart(); });
+    toggle.appendChild(leftBtn); toggle.appendChild(rightBtn);
+    axisField.appendChild(toggle);
+    stylePanelEl.appendChild(axisField);
+
+    // Nom (texte libre)
+    const nameField = document.createElement('div'); nameField.className = 'field';
+    nameField.appendChild(miniLabel('Nom'));
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text'; nameInput.className = 'ctl-input'; nameInput.value = s.nom;
+    // Mise à jour au fil de la frappe : le panneau Données est reconstruit ici, pas au
+    // `change` (blur). Reconstruire sur blur détruirait la cible d'un clic sortant
+    // entre son mousedown et son mouseup, et ce clic serait perdu.
+    nameInput.addEventListener('input', () => {
+      s.nom = nameInput.value;
+      title.textContent = 'Style · ' + s.nom;
+      renderDataPanel();
+      renderChart();
+    });
+    nameField.appendChild(nameInput);
+    stylePanelEl.insertBefore(nameField, stylePanelEl.children[1]);
+  }
+
+  function miniLabel(text) {
+    const d = document.createElement('div');
+    d.className = 'field-mini-label';
+    d.textContent = text;
+    return d;
+  }
+
+  function fieldWrap(label, build) {
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    const lab = document.createElement('div');
+    lab.className = 'field-label';
+    const span = document.createElement('span'); span.textContent = label;
+    const val = document.createElement('span'); val.className = 'val';
+    lab.appendChild(span); lab.appendChild(val);
+    wrap.appendChild(lab);
+    build(wrap, val);
+    return wrap;
+  }
+
+  /* =========================================================
+     Canvas — layout & échelles
+  ========================================================= */
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const graphArea = document.getElementById('graph-area');
+  const emptyStateEl = document.getElementById('empty-state');
+
+  function resizeCanvas() {
+    const rect = graphArea.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    renderChart();
+  }
+
+  function cssSize() {
+    return { w: canvas.clientWidth, h: canvas.clientHeight };
+  }
+
+  function dataExtent(list, accessor) {
+    let lo = Infinity, hi = -Infinity;
+    list.forEach(s => s[accessor].forEach(v => { if (v < lo) lo = v; if (v > hi) hi = v; }));
+    if (!isFinite(lo) || !isFinite(hi)) return null;
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const pad = (hi - lo) * 0.08;
+    return [lo - pad, hi + pad];
+  }
+
+  function computeAutoDomain() {
+    const vis = allSeries().filter(s => s.visible);
+    const visLeft = vis.filter(s => s.axeY === 'gauche');
+    const visRight = vis.filter(s => s.axeY === 'droite');
+    const xAll = vis;
+    let xDom = dataExtent(xAll, 'x') || [0, 1];
+    let yLDom = dataExtent(visLeft, 'y') || [0, 1];
+    return { xMin: xDom[0], xMax: xDom[1], yMinL: yLDom[0], yMaxL: yLDom[1] };
+  }
+
+  function computeRightDomain() {
+    const visRight = allSeries().filter(s => s.visible && s.axeY === 'droite');
+    const yDom = dataExtent(visRight, 'y') || [0, 1];
+    return { yMinR: yDom[0], yMaxR: yDom[1] };
+  }
+
+  function effectiveDomain() {
+    const auto = computeAutoDomain();
+    const v = state.view || auto;
+    const right = computeRightDomain();
+    return { xMin: v.xMin, xMax: v.xMax, yMinL: v.yMinL, yMaxL: v.yMaxL, yMinR: right.yMinR, yMaxR: right.yMaxR };
+  }
+
+  function ensureView() {
+    if (!state.view) state.view = computeAutoDomain();
+    return state.view;
+  }
+
+  const MARGIN = { leftBase: 16, rightBase: 16, tickPad: 10 };
+
+  // Polices du graphe : les ticks (mono) suivent le réglage utilisateur,
+  // les titres d'axes (sans) restent 1px en dessous.
+  function chartFonts() {
+    const tickF = state.labelFontSize;
+    const titleF = Math.max(9, tickF - 1);
+    return { tickF, titleF };
+  }
+
+  function computeLayout(dom, hasRight) {
+    const { w, h } = cssSize();
+    const { tickF, titleF } = chartFonts();
+    // marges verticales dérivées des polices, pour que les libellés ne soient jamais rognés
+    const top = titleF + 11;
+    const bottomPad = 8 + tickF + 6 + titleF + 6;
+    const plotH = Math.max(10, h - top - bottomPad);
+
+    ctx.font = tickF + 'px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-mono');
+    const { ticks: yTicksL, spacing: spL } = niceTicks(dom.yMinL, dom.yMaxL, Math.max(3, Math.floor(plotH / (tickF * 4.5))));
+    let maxLabelW = 0;
+    yTicksL.forEach(v => { maxLabelW = Math.max(maxLabelW, ctx.measureText(formatTick(v, spL)).width); });
+    const left = MARGIN.leftBase + maxLabelW + MARGIN.tickPad;
+
+    let right = MARGIN.rightBase;
+    let yTicksR = [], spR = 1;
+    if (hasRight) {
+      const res = niceTicks(dom.yMinR, dom.yMaxR, Math.max(3, Math.floor(plotH / (tickF * 4.5))));
+      yTicksR = res.ticks; spR = res.spacing;
+      let maxLabelWR = 0;
+      yTicksR.forEach(v => { maxLabelWR = Math.max(maxLabelWR, ctx.measureText(formatTick(v, spR)).width); });
+      right = MARGIN.rightBase + maxLabelWR + MARGIN.tickPad;
+    }
+
+    const bottom = h - bottomPad;
+    return { left, right: w - right, top, bottom, w, h, yTicksL, spL, yTicksR, spR, tickF, titleF };
+  }
+
+  function scaleX(v, dom, lay) { return lay.left + (v - dom.xMin) / (dom.xMax - dom.xMin) * (lay.right - lay.left); }
+  function scaleYL(v, dom, lay) { return lay.bottom - (v - dom.yMinL) / (dom.yMaxL - dom.yMinL) * (lay.bottom - lay.top); }
+  function scaleYR(v, dom, lay) { return lay.bottom - (v - dom.yMinR) / (dom.yMaxR - dom.yMinR) * (lay.bottom - lay.top); }
+  function invertX(px, dom, lay) { return dom.xMin + (px - lay.left) / (lay.right - lay.left) * (dom.xMax - dom.xMin); }
+  function invertYL(py, dom, lay) { return dom.yMinL + (lay.bottom - py) / (lay.bottom - lay.top) * (dom.yMaxL - dom.yMinL); }
+
+  /* =========================================================
+     Canvas — dessin
+  ========================================================= */
+  function drawMarker(type, cx, cy, r, color, opacity) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.4;
+    switch (type) {
+      case 'cercle':
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'carre':
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+        break;
+      case 'triangle':
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy + r); ctx.lineTo(cx - r, cy + r); ctx.closePath();
+        ctx.fill();
+        break;
+      case 'croix':
+        ctx.beginPath();
+        ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
+        ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
+        ctx.stroke();
+        break;
+      case 'losange':
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+        ctx.closePath(); ctx.fill();
+        break;
+    }
+    ctx.restore();
+  }
+
+  function nearestPoint(mx, my, dom, lay) {
+    let best = null, bestDist = Infinity;
+    allSeries().filter(s => s.visible).forEach(s => {
+      if (!s.x.length) return;
+      const xData = invertX(mx, dom, lay);
+      // recherche binaire de l'index le plus proche en X
+      let lo = 0, hi = s.x.length - 1;
+      if (xData <= s.x[0]) hi = 0;
+      else if (xData >= s.x[hi]) lo = hi;
+      else {
+        while (hi - lo > 1) {
+          const mid = (lo + hi) >> 1;
+          if (s.x[mid] < xData) lo = mid; else hi = mid;
+        }
+      }
+      [lo, hi].forEach(idx => {
+        if (idx < 0 || idx >= s.x.length) return;
+        const ys = s.axeY === 'droite' ? scaleYR : scaleYL;
+        const px = scaleX(s.x[idx], dom, lay);
+        const py = ys(s.y[idx], dom, lay);
+        const d = Math.hypot(px - mx, py - my);
+        if (d < bestDist) { bestDist = d; best = { s, idx, px, py }; }
+      });
+    });
+    return best;
+  }
+
+  function renderChart() {
+    const { w, h } = cssSize();
+    if (w <= 0 || h <= 0) return;
+    ctx.clearRect(0, 0, w, h);
+
+    const hasData = state.datasets.length > 0;
+    emptyStateEl.hidden = hasData;
+    canvas.style.visibility = hasData ? 'visible' : 'hidden';
+    if (!hasData) { updateStatus(null); return; }
+
+    const dom = effectiveDomain();
+    const vis = allSeries().filter(s => s.visible);
+    const hasRight = vis.some(s => s.axeY === 'droite');
+    const lay = computeLayout(dom, hasRight);
+
+    const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const gridColor = cssVar('--grid'), axisColor = cssVar('--axis'), inkColor = cssVar('--ink-2'), inkDim = cssVar('--ink-3'), accent = cssVar('--accent');
+    const monoFont = lay.tickF + 'px ' + cssVar('--font-mono');
+    const sansFont = lay.titleF + 'px ' + cssVar('--font-sans');
+
+    // grille
+    ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
+    lay.yTicksL.forEach(v => {
+      const y = Math.round(scaleYL(v, dom, lay)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(lay.left, y); ctx.lineTo(lay.right, y); ctx.stroke();
+    });
+    const { ticks: xTicks, spacing: xSp } = niceTicks(dom.xMin, dom.xMax, Math.max(3, Math.floor((lay.right - lay.left) / (lay.tickF * 7.5))));
+    xTicks.forEach(v => {
+      const x = Math.round(scaleX(v, dom, lay)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, lay.top); ctx.lineTo(x, lay.bottom); ctx.stroke();
+    });
+
+    // axes
+    ctx.strokeStyle = axisColor; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(lay.left, lay.top); ctx.lineTo(lay.left, lay.bottom); ctx.lineTo(lay.right, lay.bottom);
+    ctx.stroke();
+    if (hasRight) {
+      ctx.beginPath(); ctx.moveTo(lay.right, lay.top); ctx.lineTo(lay.right, lay.bottom); ctx.stroke();
+    }
+
+    // ticks + labels
+    ctx.fillStyle = inkColor; ctx.font = monoFont;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    lay.yTicksL.forEach(v => {
+      const y = scaleYL(v, dom, lay);
+      ctx.beginPath(); ctx.moveTo(lay.left - 5, y); ctx.lineTo(lay.left, y); ctx.strokeStyle = axisColor; ctx.stroke();
+      ctx.fillText(formatTick(v, lay.spL), lay.left - 8, y);
+    });
+    if (hasRight) {
+      ctx.textAlign = 'left';
+      lay.yTicksR.forEach(v => {
+        const y = scaleYR(v, dom, lay);
+        ctx.beginPath(); ctx.moveTo(lay.right, y); ctx.lineTo(lay.right + 5, y); ctx.strokeStyle = axisColor; ctx.stroke();
+        ctx.fillText(formatTick(v, lay.spR), lay.right + 8, y);
+      });
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    xTicks.forEach(v => {
+      const x = scaleX(v, dom, lay);
+      if (x < lay.left - 1 || x > lay.right + 1) return;
+      ctx.beginPath(); ctx.moveTo(x, lay.bottom); ctx.lineTo(x, lay.bottom + 5); ctx.strokeStyle = axisColor; ctx.stroke();
+      ctx.fillStyle = inkColor;
+      ctx.fillText(formatTick(v, xSp), x, lay.bottom + 8);
+    });
+
+    // titre axe X (nom de la première colonne X visible)
+    const xName = vis.length ? (findDatasetOf(vis[0]) || {}).xName : null;
+    ctx.font = sansFont; ctx.fillStyle = inkDim; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    if (xName) ctx.fillText(xName, (lay.left + lay.right) / 2, lay.bottom + 8 + lay.tickF + 6);
+
+    const leftNames = [...new Set(vis.filter(s => s.axeY === 'gauche').map(s => s.nom))];
+    const rightNames = [...new Set(vis.filter(s => s.axeY === 'droite').map(s => s.nom))];
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    if (leftNames.length === 1) ctx.fillText(leftNames[0], lay.left, lay.top - 6);
+    if (hasRight && rightNames.length === 1) { ctx.textAlign = 'right'; ctx.fillText(rightNames[0], lay.right, lay.top - 6); }
+
+    // clip zone graphe
+    ctx.save();
+    ctx.beginPath(); ctx.rect(lay.left, lay.top, lay.right - lay.left, lay.bottom - lay.top); ctx.clip();
+
+    // séries
+    vis.forEach(s => {
+      const ys = s.axeY === 'droite' ? scaleYR : scaleYL;
+      ctx.save();
+      ctx.globalAlpha = s.opacite / 100;
+      ctx.strokeStyle = s.couleur;
+      ctx.lineWidth = s.epaisseur;
+      ctx.setLineDash(DASH_PATTERNS[s.styleTrait]);
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < s.x.length; i++) {
+        const px = scaleX(s.x[i], dom, lay), py = ys(s.y[i], dom, lay);
+        if (!started) { ctx.moveTo(px, py); started = true; } else { ctx.lineTo(px, py); }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      if (s.marqueur !== 'aucun') {
+        for (let i = 0; i < s.x.length; i += s.densiteMarqueur) {
+          const px = scaleX(s.x[i], dom, lay), py = ys(s.y[i], dom, lay);
+          drawMarker(s.marqueur, px, py, s.tailleMarqueur / 2, s.couleur, s.opacite / 100);
+        }
+      }
+    });
+
+    // zoom boîte en cours
+    if (state.dragStart && state.dragStart.mode === 'box' && state.dragNow) {
+      const x0 = state.dragStart.mx, y0 = state.dragStart.my, x1 = state.dragNow.mx, y1 = state.dragNow.my;
+      ctx.fillStyle = 'rgba(22,104,214,0.12)';
+      ctx.strokeStyle = accent; ctx.lineWidth = 1;
+      const rx = Math.min(x0, x1), ry = Math.min(y0, y1), rw = Math.abs(x1 - x0), rh = Math.abs(y1 - y0);
+      ctx.fillRect(rx, ry, rw, rh); ctx.strokeRect(rx + 0.5, ry + 0.5, rw, rh);
+    }
+
+    // crosshair / tooltip
+    let hoverInfo = null;
+    if (state.hover && !state.dragStart &&
+        state.hover.mx >= lay.left && state.hover.mx <= lay.right &&
+        state.hover.my >= lay.top && state.hover.my <= lay.bottom) {
+      const np = nearestPoint(state.hover.mx, state.hover.my, dom, lay);
+      if (np) {
+        hoverInfo = np;
+        if (state.showCrosshair) {
+          ctx.strokeStyle = accent; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.moveTo(np.px, lay.top); ctx.lineTo(np.px, lay.bottom); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(lay.left, np.py); ctx.lineTo(lay.right, np.py); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        ctx.beginPath(); ctx.arc(np.px, np.py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = accent; ctx.fill();
+      }
+    }
+    ctx.restore(); // fin clip
+
+    if (hoverInfo) {
+      const s = hoverInfo.s;
+      const chipText = 'x=' + fmt3(s.x[hoverInfo.idx]) + '  y=' + fmt3(s.y[hoverInfo.idx]) + ' · ' + s.nom;
+      ctx.font = monoFont;
+      const textW = ctx.measureText(chipText).width;
+      const chipW = textW + 16, chipH = lay.tickF + 8;
+      let chipX = hoverInfo.px + 10;
+      if (chipX + chipW > lay.right) chipX = hoverInfo.px - chipW - 10;
+      let chipY = hoverInfo.py - chipH - 8;
+      if (chipY < lay.top) chipY = hoverInfo.py + 10;
+      ctx.fillStyle = cssVar('--ink-1');
+      roundRect(chipX, chipY, chipW, chipH, 3); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(chipText, chipX + 8, chipY + chipH / 2 + 1);
+    }
+
+    updateStatus(hoverInfo);
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function findDatasetOf(series) {
+    const ds = state.datasets.find(d => d.id === series.datasetId);
+    return ds ? { xName: ds.headers[ds.xIdx] } : null;
+  }
+
+  /* =========================================================
+     Statut
+  ========================================================= */
+  const statusCoords = document.getElementById('status-coords');
+  function updateStatus(hoverInfo) {
+    if (hoverInfo) {
+      statusCoords.textContent = 'x = ' + fmt3(hoverInfo.s.x[hoverInfo.idx]) + '   y = ' + fmt3(hoverInfo.s.y[hoverInfo.idx]) + '   · ' + hoverInfo.s.nom;
+    } else {
+      statusCoords.textContent = 'x = —      y = —';
+    }
+  }
+
+  /* =========================================================
+     Interactions canvas : zoom molette, pan, zoom-boîte, auto-fit
+  ========================================================= */
+  function localXY(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { mx: e.clientX - rect.left, my: e.clientY - rect.top };
+  }
+
+  canvas.addEventListener('wheel', (e) => {
+    if (!state.datasets.length) return;
+    e.preventDefault();
+    const dom = effectiveDomain();
+    const hasRight = allSeries().some(s => s.visible && s.axeY === 'droite');
+    const lay = computeLayout(dom, hasRight);
+    const { mx, my } = localXY(e);
+    if (mx < lay.left || mx > lay.right || my < lay.top || my > lay.bottom) return;
+    const factor = e.deltaY < 0 ? 0.88 : 1 / 0.88;
+    const xData = invertX(mx, dom, lay), yData = invertYL(my, dom, lay);
+    ensureView();
+    const v = state.view;
+    v.xMin = xData - (xData - dom.xMin) * factor;
+    v.xMax = xData + (dom.xMax - xData) * factor;
+    v.yMinL = yData - (yData - dom.yMinL) * factor;
+    v.yMaxL = yData + (dom.yMaxL - yData) * factor;
+    renderChart();
+    markDirty();
+  }, { passive: false });
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (!state.datasets.length) return;
+    const { mx, my } = localXY(e);
+    state.dragStart = { mx, my, mode: e.shiftKey ? 'box' : 'pan' };
+    state.dragNow = { mx, my };
+    if (state.dragStart.mode === 'pan') ensureView();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!state.dragStart) return;
+    if ((e.buttons & 1) === 0) {
+      // le bouton a été relâché hors de la fenêtre : on ne l'a jamais su
+      state.dragStart = null; state.dragNow = null;
+      renderChart();
+      return;
+    }
+    const { mx, my } = localXY(e);
+    state.dragNow = { mx, my };
+    if (state.dragStart.mode === 'pan') {
+      const dom = effectiveDomain();
+      const hasRight = allSeries().some(s => s.visible && s.axeY === 'droite');
+      const lay = computeLayout(dom, hasRight);
+      const dxData = (state.dragStart.mx - mx) / (lay.right - lay.left) * (dom.xMax - dom.xMin);
+      const dyData = (my - state.dragStart.my) / (lay.bottom - lay.top) * (dom.yMaxL - dom.yMinL);
+      const v = state.view;
+      const w0 = v.xMax - v.xMin, h0 = v.yMaxL - v.yMinL;
+      v.xMin = dom.xMin + dxData; v.xMax = v.xMin + w0;
+      v.yMinL = dom.yMinL + dyData; v.yMaxL = v.yMinL + h0;
+      state.dragStart.mx = mx; state.dragStart.my = my;
+    }
+    renderChart();
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!state.dragStart) return;
+    if (state.dragStart.mode === 'box' && state.dragNow) {
+      const x0 = state.dragStart.mx, y0 = state.dragStart.my, x1 = state.dragNow.mx, y1 = state.dragNow.my;
+      if (Math.abs(x1 - x0) > 6 && Math.abs(y1 - y0) > 6) {
+        const dom = effectiveDomain();
+        const hasRight = allSeries().some(s => s.visible && s.axeY === 'droite');
+        const lay = computeLayout(dom, hasRight);
+        const xMinD = invertX(Math.min(x0, x1), dom, lay), xMaxD = invertX(Math.max(x0, x1), dom, lay);
+        const yTop = invertYL(Math.min(y0, y1), dom, lay), yBot = invertYL(Math.max(y0, y1), dom, lay);
+        state.view = { xMin: xMinD, xMax: xMaxD, yMinL: yBot, yMaxL: yTop };
+      }
+    }
+    state.dragStart = null; state.dragNow = null;
+    renderChart();
+    markDirty();
+  });
+
+  window.addEventListener('blur', () => {
+    if (!state.dragStart) return;
+    state.dragStart = null; state.dragNow = null;
+    renderChart();
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (state.dragStart) return;
+    state.hover = localXY(e);
+    renderChart();
+  });
+  canvas.addEventListener('mouseleave', () => { state.hover = null; renderChart(); });
+
+  canvas.addEventListener('dblclick', () => {
+    state.view = null;
+    renderChart();
+    markDirty();
+  });
+
+  /* =========================================================
+     Rendu global
+  ========================================================= */
+  function renderAll() {
+    renderDataPanel();
+    renderStylePanel();
+    resizeCanvas();
+  }
+
+  new ResizeObserver(() => resizeCanvas()).observe(graphArea);
+
+  /* =========================================================
+     Import — dialogue
+  ========================================================= */
+  const fileInput = document.getElementById('file-input');
+  const modalBackdrop = document.getElementById('modal-backdrop');
+  const modalEl = document.getElementById('import-modal');
+
+  document.getElementById('btn-import').addEventListener('click', () => fileInput.click());
+  document.getElementById('btn-import-empty').addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    const files = Array.from(fileInput.files || []);
+    fileInput.value = '';
+    if (!files.length) return;
+    let i = 0;
+    function next() {
+      if (i >= files.length) return;
+      const f = files[i++];
+      const reader = new FileReader();
+      reader.onload = () => {
+        openImportDialog({ mode: 'new', filename: f.name, rawText: reader.result, onDone: next });
+      };
+      reader.readAsText(f);
+    }
+    next();
+  });
+
+  function baseName(filename) {
+    return filename.replace(/\.[^.]+$/, '');
+  }
+
+  function openImportDialog(cfg) {
+    // cfg: { mode: 'new'|'edit', filename, rawText, ds?, onDone? }
+    const initialOpts = cfg.mode === 'edit'
+      ? { separator: cfg.ds.separator, decimal: cfg.ds.decimal, header: cfg.ds.header }
+      : { separator: null, decimal: null, header: null };
+
+    const analysis0 = analyzeCsv(cfg.rawText, initialOpts);
+    analysis0.rawText = cfg.rawText;
+
+    const numericIdxs = analysis0.numericFlags.map((f, i) => f ? i : -1).filter(i => i >= 0);
+    let xIdx = cfg.mode === 'edit' ? cfg.ds.xIdx : (numericIdxs[0] !== undefined ? numericIdxs[0] : 0);
+    let yChecked = {};
+    analysis0.headers.forEach((h, i) => {
+      if (i === xIdx) return;
+      if (cfg.mode === 'edit') yChecked[i] = cfg.ds.yIdxs.includes(i);
+      else yChecked[i] = analysis0.numericFlags[i];
+    });
+
+    state.importState = {
+      mode: cfg.mode, filename: cfg.filename, rawText: cfg.rawText, onDone: cfg.onDone, ds: cfg.ds,
+      opts: { separator: analysis0.separator, decimal: analysis0.decimal, header: analysis0.header },
+      xIdx, yChecked,
+      datasetName: cfg.mode === 'edit' ? cfg.ds.nom : baseName(cfg.filename),
+    };
+    modalBackdrop.hidden = false;
+    renderImportModal();
+  }
+
+  function closeImportDialog(runOnDone) {
+    modalBackdrop.hidden = true;
+    const st = state.importState;
+    state.importState = null;
+    modalEl.innerHTML = '';
+    if (runOnDone && st && st.onDone) st.onDone();
+  }
+
+  modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeImportDialog(true); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modalBackdrop.hidden) closeImportDialog(true);
+  });
+
+  function renderImportModal() {
+    const st = state.importState;
+    const analysis = analyzeCsv(st.rawText, st.opts);
+    analysis.rawText = st.rawText;
+    st.opts.separator = analysis.separator;
+    st.opts.decimal = analysis.decimal;
+    st.opts.header = analysis.header;
+
+    // garde les colonnes X/Y valides si la largeur change
+    if (st.xIdx >= analysis.width) st.xIdx = 0;
+    Object.keys(st.yChecked).forEach(k => { if (+k >= analysis.width) delete st.yChecked[k]; });
+
+    modalEl.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    header.textContent = 'Importer « ' + st.filename + ' »';
+    modalEl.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+
+    // réglages
+    const settingsRow = document.createElement('div');
+    settingsRow.className = 'settings-row';
+
+    const sepCol = document.createElement('div'); sepCol.className = 'grow';
+    sepCol.appendChild(miniLabel('Séparateur'));
+    const sepSel = document.createElement('select'); sepSel.className = 'ctl-select';
+    [[';','Point-virgule'],[',','Virgule'],['\t','Tabulation'],['space','Espace']].forEach(([v,l]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = l;
+      if (st.opts.separator === v) o.selected = true;
+      sepSel.appendChild(o);
+    });
+    sepSel.addEventListener('change', () => { st.opts.separator = sepSel.value; renderImportModal(); });
+    sepCol.appendChild(sepSel);
+    settingsRow.appendChild(sepCol);
+
+    const decCol = document.createElement('div'); decCol.className = 'grow';
+    decCol.appendChild(miniLabel('Décimale'));
+    const decSel = document.createElement('select'); decSel.className = 'ctl-select';
+    [['.','Point'],[',','Virgule']].forEach(([v,l]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = l;
+      if (st.opts.decimal === v) o.selected = true;
+      decSel.appendChild(o);
+    });
+    decSel.addEventListener('change', () => { st.opts.decimal = decSel.value; renderImportModal(); });
+    decCol.appendChild(decSel);
+    settingsRow.appendChild(decCol);
+
+    const headCol = document.createElement('div'); headCol.className = 'header-check';
+    const headChk = document.createElement('input'); headChk.type = 'checkbox'; headChk.id = 'gc-header-chk';
+    headChk.checked = st.opts.header;
+    headChk.addEventListener('change', () => { st.opts.header = headChk.checked; renderImportModal(); });
+    const headLbl = document.createElement('label'); headLbl.htmlFor = 'gc-header-chk'; headLbl.textContent = 'En-tête';
+    headCol.appendChild(headChk); headCol.appendChild(headLbl);
+    settingsRow.appendChild(headCol);
+
+    body.appendChild(settingsRow);
+
+    // aperçu
+    const previewWrap = document.createElement('div'); previewWrap.className = 'preview-wrap';
+    const table = document.createElement('table'); table.className = 'preview';
+    const thead = document.createElement('thead'); const trh = document.createElement('tr');
+    analysis.headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; trh.appendChild(th); });
+    thead.appendChild(trh); table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    const nPreview = Math.min(6, analysis.dataRows.length);
+    for (let r = 0; r < nPreview; r++) {
+      const tr = document.createElement('tr');
+      for (let c = 0; c < analysis.width; c++) {
+        const td = document.createElement('td');
+        td.textContent = analysis.cols[c][r] !== undefined ? analysis.cols[c][r] : '';
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    previewWrap.appendChild(table);
+    body.appendChild(previewWrap);
+
+    // colonnes X / Y
+    const colRow = document.createElement('div'); colRow.className = 'col-select-row';
+    const xCol = document.createElement('div'); xCol.className = 'grow';
+    xCol.appendChild(miniLabel('Colonne X'));
+    analysis.headers.forEach((h, i) => {
+      const line = document.createElement('div'); line.className = 'radio-line';
+      const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'gc-xcol'; radio.id = 'gc-x-' + i;
+      radio.checked = st.xIdx === i;
+      radio.disabled = !analysis.numericFlags[i];
+      radio.addEventListener('change', () => {
+        st.xIdx = i;
+        if (st.yChecked[i] !== undefined) delete st.yChecked[i];
+        renderImportModal();
+      });
+      const lbl = document.createElement('label'); lbl.htmlFor = 'gc-x-' + i; lbl.textContent = h;
+      if (!analysis.numericFlags[i]) lbl.style.opacity = '0.45';
+      line.appendChild(radio); line.appendChild(lbl);
+      xCol.appendChild(line);
+    });
+    colRow.appendChild(xCol);
+
+    const yCol = document.createElement('div'); yCol.className = 'grow';
+    yCol.appendChild(miniLabel('Colonnes Y'));
+    analysis.headers.forEach((h, i) => {
+      if (i === st.xIdx) return;
+      const line = document.createElement('div'); line.className = 'check-line';
+      const chk = document.createElement('input'); chk.type = 'checkbox'; chk.id = 'gc-y-' + i;
+      chk.checked = !!st.yChecked[i];
+      chk.disabled = !analysis.numericFlags[i];
+      chk.addEventListener('change', () => { st.yChecked[i] = chk.checked; renderImportModal(); });
+      const lbl = document.createElement('label'); lbl.htmlFor = 'gc-y-' + i; lbl.textContent = h;
+      if (!analysis.numericFlags[i]) lbl.style.opacity = '0.45';
+      line.appendChild(chk); line.appendChild(lbl);
+      yCol.appendChild(line);
+    });
+    colRow.appendChild(yCol);
+    body.appendChild(colRow);
+
+    // nom du jeu
+    const nameField = document.createElement('div'); nameField.style.marginBottom = '6px';
+    nameField.appendChild(miniLabel('Nom du jeu'));
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text'; nameInput.className = 'ctl-input'; nameInput.style.height = '30px';
+    nameInput.value = st.datasetName;
+    nameInput.addEventListener('input', () => { st.datasetName = nameInput.value; });
+    nameField.appendChild(nameInput);
+    body.appendChild(nameField);
+
+    const anyY = Object.values(st.yChecked).some(Boolean);
+    const noNumeric = !analysis.numericFlags.some(Boolean);
+    const hasError = noNumeric || !anyY;
+
+    if (hasError) {
+      const err = document.createElement('div'); err.className = 'error-banner';
+      err.textContent = noNumeric
+        ? 'Aucune colonne numérique détectée. Vérifiez le séparateur ou la décimale.'
+        : 'Sélectionnez au moins une colonne Y à importer.';
+      body.appendChild(err);
+    }
+
+    modalEl.appendChild(body);
+
+    const footer = document.createElement('div'); footer.className = 'modal-footer';
+    const cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn-secondary'; cancelBtn.textContent = 'Annuler';
+    cancelBtn.addEventListener('click', () => closeImportDialog(true));
+    const importBtn = document.createElement('button'); importBtn.className = 'btn btn-primary'; importBtn.textContent = 'Importer';
+    importBtn.disabled = hasError;
+    importBtn.addEventListener('click', () => confirmImport(analysis));
+    footer.appendChild(cancelBtn); footer.appendChild(importBtn);
+    modalEl.appendChild(footer);
+  }
+
+  function confirmImport(analysis) {
+    const st = state.importState;
+    const yIdxs = Object.keys(st.yChecked).filter(k => st.yChecked[k]).map(Number).sort((a, b) => a - b);
+    if (!yIdxs.length) return;
+
+    let stylesByCol = null;
+    if (st.mode === 'edit') {
+      stylesByCol = {};
+      st.ds.series.forEach(s => { stylesByCol[s.colIdx] = s; });
+    }
+
+    const meta = {
+      id: st.mode === 'edit' ? st.ds.id : undefined,
+      nom: st.datasetName || (st.mode === 'edit' ? st.ds.nom : baseName(st.filename)),
+      source: st.filename,
+      xIdx: st.xIdx, yIdxs, stylesByCol,
+    };
+    const newDs = buildDatasetFromAnalysis(analysis, meta);
+    newDs.expanded = st.mode === 'edit' ? st.ds.expanded : true;
+
+    if (st.mode === 'edit') {
+      const idx = state.datasets.findIndex(d => d.id === st.ds.id);
+      state.datasets[idx] = newDs;
+    } else {
+      state.datasets.push(newDs);
+    }
+    state.selectedKey = newDs.series.length ? (newDs.id + ':' + newDs.series[0].id) : state.selectedKey;
+    state.view = null;
+    closeImportDialog(true);
+    renderAll();
+    markDirty();
+  }
+
+  function openReeditDialog(ds) {
+    openImportDialog({ mode: 'edit', filename: ds.source || ds.nom, rawText: ds.rawTexte, ds, onDone: null });
+  }
+
+  /* =========================================================
+     Export PNG
+  ========================================================= */
+  document.getElementById('btn-export').addEventListener('click', () => {
+    if (!state.datasets.length) return;
+    const link = document.createElement('a');
+    link.download = 'graphs-clone-export.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  /* =========================================================
+     Projet : sérialisation, enregistrement, chargement
+     Le texte brut de chaque CSV est conservé et re-analysé au chargement ;
+     seuls les réglages d'import et les styles sont stockés en plus.
+  ========================================================= */
+  const PROJECT_FORMAT = 'graphs-clone-project';
+  const PROJECT_VERSION = 1;
+  const AUTOSAVE_KEY = 'graphs-clone:autosave:v1';
+
+  function serializeProject() {
+    const sel = selectedSeries();
+    return {
+      format: PROJECT_FORMAT,
+      version: PROJECT_VERSION,
+      savedAt: new Date().toISOString(),
+      nextDatasetNum: state.nextDatasetNum,
+      paletteCursor: state.paletteCursor,
+      showCrosshair: state.showCrosshair,
+      labelFontSize: state.labelFontSize,
+      view: state.view ? { ...state.view } : null,
+      selection: sel ? { datasetId: sel.ds.id, colIdx: sel.s.colIdx } : null,
+      datasets: state.datasets.map(ds => ({
+        id: ds.id, nom: ds.nom, source: ds.source, rawTexte: ds.rawTexte,
+        separator: ds.separator, decimal: ds.decimal, header: ds.header,
+        xIdx: ds.xIdx, yIdxs: ds.yIdxs.slice(), expanded: ds.expanded,
+        series: ds.series.map(s => ({
+          colIdx: s.colIdx, nom: s.nom, visible: s.visible, couleur: s.couleur,
+          epaisseur: s.epaisseur, styleTrait: s.styleTrait, marqueur: s.marqueur,
+          tailleMarqueur: s.tailleMarqueur, densiteMarqueur: s.densiteMarqueur,
+          opacite: s.opacite, axeY: s.axeY,
+        })),
+      })),
+    };
+  }
+
+  function applyProject(proj) {
+    if (!proj || proj.format !== PROJECT_FORMAT || !Array.isArray(proj.datasets)) {
+      throw new Error('Fichier de projet non reconnu.');
+    }
+    const datasets = proj.datasets.map(pd => {
+      const analysis = analyzeCsv(pd.rawTexte || '', {
+        separator: pd.separator, decimal: pd.decimal, header: pd.header,
+      });
+      analysis.rawText = pd.rawTexte || '';
+      const stylesByCol = {};
+      (pd.series || []).forEach(ps => { stylesByCol[ps.colIdx] = ps; });
+      const ds = buildDatasetFromAnalysis(analysis, {
+        id: pd.id, nom: pd.nom, source: pd.source,
+        xIdx: pd.xIdx, yIdxs: pd.yIdxs || [], stylesByCol,
+      });
+      ds.expanded = pd.expanded !== false;
+      return ds;
+    });
+
+    state.datasets = datasets;
+    state.nextDatasetNum = proj.nextDatasetNum || datasets.length + 1;
+    state.paletteCursor = proj.paletteCursor || 0;
+    state.showCrosshair = proj.showCrosshair !== false;
+    state.labelFontSize = proj.labelFontSize || 12;
+    state.view = proj.view || null;
+
+    state.selectedKey = null;
+    if (proj.selection) {
+      const ds = state.datasets.find(d => d.id === proj.selection.datasetId);
+      const s = ds && ds.series.find(x => x.colIdx === proj.selection.colIdx);
+      if (s) state.selectedKey = ds.id + ':' + s.id;
+    }
+  }
+
+  const saveStatusEl = document.getElementById('save-status');
+  let saveStatusTimer = null;
+  function showSaveStatus(msg, ms) {
+    saveStatusEl.textContent = msg;
+    clearTimeout(saveStatusTimer);
+    saveStatusTimer = setTimeout(() => { saveStatusEl.textContent = ''; }, ms || 3000);
+  }
+
+  function saveProjectToFile() {
+    if (!state.datasets.length) { showSaveStatus('Rien à enregistrer', 3000); return; }
+    const blob = new Blob([JSON.stringify(serializeProject())], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = 'projet-graphs-clone.json';
+    link.href = url;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showSaveStatus('Projet enregistré', 3000);
+  }
+
+  const projectInput = document.getElementById('project-input');
+  projectInput.addEventListener('change', () => {
+    const f = (projectInput.files || [])[0];
+    projectInput.value = '';
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        applyProject(JSON.parse(reader.result));
+      } catch (e) {
+        alert('Chargement impossible : ' + e.message + '\nVérifiez qu\'il s\'agit bien d\'un projet Graphs·Clone.');
+        return;
+      }
+      renderAll();
+      syncSettingsUI();
+      markDirty();
+      showSaveStatus('Projet chargé', 3000);
+    };
+    reader.readAsText(f);
+  });
+
+  function newProject() {
+    if (state.datasets.length && !confirm('Repartir d\'un projet vide ? Les données actuelles seront perdues.')) return;
+    state.datasets = [];
+    state.selectedKey = null;
+    state.view = null;
+    state.nextDatasetNum = 1;
+    state.paletteCursor = 0;
+    try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* stockage indisponible */ }
+    renderAll();
+    showSaveStatus('Nouveau projet', 3000);
+  }
+
+  document.getElementById('btn-project').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.querySelector('.ds-menu')) { closeDatasetMenu(); return; }
+    openMenuAt(e.currentTarget, [
+      { label: 'Enregistrer le projet…', action: saveProjectToFile },
+      { label: 'Ouvrir un projet…', action: () => projectInput.click() },
+      { label: 'Nouveau projet', danger: true, action: newProject },
+    ]);
+  });
+
+  /* ---- Sauvegarde automatique (localStorage) ---- */
+  const AUTOSAVE_DEBOUNCE = 600;   // délai après la dernière modification
+  const AUTOSAVE_MAX_WAIT = 3000;  // délai maximal, même si les modifications s'enchaînent
+  let autosaveTimer = null;
+  let autosaveDisabled = false;
+  let firstDirtyAt = 0;
+
+  // Anti-report infini : sans plafond, une suite ininterrompue de modifications
+  // repousserait l'écriture indéfiniment et rien ne serait jamais sauvegardé.
+  function markDirty() {
+    if (autosaveDisabled) return;
+    const now = Date.now();
+    if (!firstDirtyAt) firstDirtyAt = now;
+    clearTimeout(autosaveTimer);
+    const wait = Math.max(0, Math.min(AUTOSAVE_DEBOUNCE, firstDirtyAt + AUTOSAVE_MAX_WAIT - now));
+    autosaveTimer = setTimeout(flushAutosave, wait);
+  }
+
+  function flushAutosave() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    firstDirtyAt = 0;
+    writeAutosave();
+  }
+
+  // Filet de sécurité : fermeture d'onglet ou passage en arrière-plan.
+  window.addEventListener('pagehide', () => { if (firstDirtyAt) flushAutosave(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && firstDirtyAt) flushAutosave();
+  });
+
+  function writeAutosave() {
+    try {
+      if (!state.datasets.length) { localStorage.removeItem(AUTOSAVE_KEY); return; }
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serializeProject()));
+    } catch (e) {
+      // quota dépassé ou stockage interdit : on cesse d'essayer, l'enregistrement
+      // manuel dans un fichier reste disponible.
+      autosaveDisabled = true;
+      showSaveStatus('Sauvegarde auto indisponible — utilisez Projet ▸ Enregistrer', 8000);
+    }
+  }
+
+  function restoreAutosave() {
+    let raw = null;
+    try { raw = localStorage.getItem(AUTOSAVE_KEY); } catch (e) { return false; }
+    if (!raw) return false;
+    try { applyProject(JSON.parse(raw)); return true; } catch (e) { return false; }
+  }
+
+  /* =========================================================
+     Réglages d'affichage (popover ⚙)
+  ========================================================= */
+  function closePopover() {
+    const el = document.querySelector('.popover');
+    if (el) el.remove();
+  }
+
+  function syncSettingsUI() {
+    // le popover est reconstruit à chaque ouverture : rien à synchroniser s'il est fermé
+    if (document.querySelector('.popover')) { closePopover(); openSettingsPopover(); }
+  }
+
+  function openSettingsPopover() {
+    const anchor = document.getElementById('btn-settings');
+    closeDatasetMenu();
+    closePopover();
+    const rect = anchor.getBoundingClientRect();
+    const pop = document.createElement('div');
+    pop.className = 'popover';
+    pop.style.top = (rect.bottom + 4) + 'px';
+    pop.style.left = Math.min(rect.left, window.innerWidth - 250) + 'px';
+
+    // Taille des libellés d'axes
+    const sizeField = document.createElement('div');
+    sizeField.className = 'field';
+    const sizeLab = document.createElement('div');
+    sizeLab.className = 'field-label';
+    const sizeTxt = document.createElement('span'); sizeTxt.textContent = 'Taille des libellés';
+    const sizeVal = document.createElement('span'); sizeVal.className = 'val';
+    sizeVal.textContent = state.labelFontSize + ' px';
+    sizeLab.appendChild(sizeTxt); sizeLab.appendChild(sizeVal);
+    sizeField.appendChild(sizeLab);
+    const sizeRange = document.createElement('input');
+    sizeRange.type = 'range'; sizeRange.min = '9'; sizeRange.max = '24'; sizeRange.step = '1';
+    sizeRange.value = state.labelFontSize;
+    sizeRange.addEventListener('input', () => {
+      state.labelFontSize = parseInt(sizeRange.value);
+      sizeVal.textContent = state.labelFontSize + ' px';
+      renderChart();
+      markDirty();
+    });
+    sizeField.appendChild(sizeRange);
+    pop.appendChild(sizeField);
+
+    // Croix au survol
+    const crossField = document.createElement('div');
+    crossField.className = 'field';
+    const crossLabel = document.createElement('label');
+    crossLabel.className = 'check';
+    const crossChk = document.createElement('input');
+    crossChk.type = 'checkbox'; crossChk.checked = state.showCrosshair;
+    crossChk.addEventListener('change', () => {
+      state.showCrosshair = crossChk.checked;
+      renderChart();
+      markDirty();
+    });
+    crossLabel.appendChild(crossChk);
+    crossLabel.appendChild(document.createTextNode('Croix au survol'));
+    crossField.appendChild(crossLabel);
+    pop.appendChild(crossField);
+
+    document.body.appendChild(pop);
+  }
+
+  document.getElementById('btn-settings').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (document.querySelector('.popover')) closePopover();
+    else openSettingsPopover();
+  });
+
+  /* =========================================================
+     Rail rétractable (< 900px)
+  ========================================================= */
+  const bodyEl = document.getElementById('body');
+  let railUserToggled = false;
+  document.getElementById('rail-toggle').addEventListener('click', () => {
+    state.railCollapsed = !state.railCollapsed;
+    railUserToggled = true;
+    bodyEl.classList.toggle('rail-collapsed', state.railCollapsed);
+  });
+  function applyResponsive() {
+    const narrow = window.innerWidth <= 900;
+    if (narrow && !railUserToggled) state.railCollapsed = true;
+    else if (!narrow) { state.railCollapsed = false; railUserToggled = false; }
+    bodyEl.classList.toggle('rail-collapsed', state.railCollapsed);
+  }
+  window.addEventListener('resize', applyResponsive);
+  applyResponsive();
+
+  /* =========================================================
+     Init
+  ========================================================= */
+  const restored = restoreAutosave();
+  renderAll();
+  if (restored) showSaveStatus('Session précédente restaurée', 5000);
+})();
+</script>
+</body>
+</html>
