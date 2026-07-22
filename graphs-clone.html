@@ -458,6 +458,22 @@
     return cols[idx].map(tok => parseNumber(tok, decimal));
   }
 
+  // Abscisse discrète : transforme une colonne de texte en positions entières.
+  // Chaque libellé distinct reçoit un indice 0,1,2… dans l'ordre d'apparition ;
+  // une cellule vide renvoie NaN (le point sera ignoré, comme pour un X manquant).
+  // Aucune donnée n'est transformée — on ne fait qu'attribuer une position d'axe.
+  function columnCategoryValues(col) {
+    const labels = [];
+    const indexOf = new Map();
+    const values = (col || []).map(tok => {
+      const s = tok === undefined || tok === null ? '' : String(tok).trim();
+      if (s === '') return NaN;
+      if (!indexOf.has(s)) { indexOf.set(s, labels.length); labels.push(s); }
+      return indexOf.get(s);
+    });
+    return { values, labels };
+  }
+
   /* =========================================================
      Modèle : datasets / séries
   ========================================================= */
@@ -480,8 +496,18 @@
     const decimal = analysis.decimal;
     const xIdx = meta.xIdx;
     const yIdxs = meta.yIdxs;
-    const xIsText = meta.xIsText;
-    const xValsRaw = columnNumericValues(analysis.cols, xIdx, decimal);
+    // Abscisse discrète : une colonne X non numérique est traitée comme des
+    // catégories (libellés → positions entières). Déduit des données elles-mêmes
+    // (pas d'un réglage stocké), donc reconstruit à l'identique au rechargement.
+    const xIsText = !analysis.numericFlags[xIdx];
+    let xValsRaw, xLabels = null;
+    if (xIsText) {
+      const cat = columnCategoryValues(analysis.cols[xIdx]);
+      xValsRaw = cat.values;
+      xLabels = cat.labels;
+    } else {
+      xValsRaw = columnNumericValues(analysis.cols, xIdx, decimal);
+    }
     const ds = {
       id: meta.id || ('ds' + (state.nextDatasetNum++)),
       nom: meta.nom,
@@ -491,7 +517,7 @@
       headers: analysis.headers.slice(),
       cols: analysis.cols,
       xIdx, yIdxs: yIdxs.slice(),
-      xIsText,
+      xIsText, xLabels,
       expanded: true,
       series: [],
     };
@@ -1092,6 +1118,48 @@
     return best;
   }
 
+  // Axe X catégoriel : renvoie la liste des libellés (indexée par position) si
+  // TOUTES les séries visibles proviennent de jeux à abscisse textuelle, sinon
+  // null (axe numérique). Si plusieurs jeux catégoriels sont visibles, on fusionne
+  // par position — le premier définit le libellé (cas courant : un seul jeu).
+  function categoricalXLabels(vis) {
+    if (!vis.length) return null;
+    const dss = vis.map(s => state.datasets.find(d => d.id === s.datasetId));
+    if (!dss.every(d => d && d.xIsText && d.xLabels)) return null;
+    const labels = [];
+    dss.forEach(d => d.xLabels.forEach((lab, i) => { if (labels[i] == null) labels[i] = lab; }));
+    return labels;
+  }
+
+  // Graduations d'un axe X catégoriel : une par position entière visible, amincies
+  // pour que les libellés ne se chevauchent pas. ctx.font doit être réglé (mono).
+  function categoricalXTicks(labels, dom, lay) {
+    const lo = Math.max(0, Math.ceil(dom.xMin - 1e-9));
+    const hi = Math.min(labels.length - 1, Math.floor(dom.xMax + 1e-9));
+    const all = [];
+    for (let i = lo; i <= hi; i++) all.push(i);
+    if (!all.length) return [];
+    let maxW = 0;
+    all.forEach(i => { maxW = Math.max(maxW, ctx.measureText(labels[i] || '').width); });
+    const plotW = lay.right - lay.left;
+    const maxLabels = Math.max(1, Math.floor(plotW / (maxW + 14)));
+    const step = Math.ceil(all.length / maxLabels);
+    const out = [];
+    for (let k = 0; k < all.length; k += step) out.push({ v: all[k], label: labels[all[k]] || '' });
+    return out;
+  }
+
+  // Affichage d'une valeur X : libellé de catégorie si l'abscisse est textuelle,
+  // sinon la valeur numérique formatée. Utilisé par le survol et la barre de statut.
+  function xDisplay(s, xv) {
+    const ds = state.datasets.find(d => d.id === s.datasetId);
+    if (ds && ds.xIsText && ds.xLabels) {
+      const i = Math.round(xv);
+      if (i >= 0 && i < ds.xLabels.length) return ds.xLabels[i];
+    }
+    return fmt3(xv);
+  }
+
   function renderChart() {
     const { w, h } = cssSize();
     if (w <= 0 || h <= 0) return;
@@ -1106,6 +1174,7 @@
     const vis = allSeries().filter(s => s.visible);
     const hasRight = vis.some(s => s.axeY === 'droite');
     const lay = computeLayout(dom, hasRight);
+    const catLabels = categoricalXLabels(vis);
 
     const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     const gridColor = cssVar('--grid'), axisColor = cssVar('--axis'), inkColor = cssVar('--ink-2'), inkDim = cssVar('--ink-3'), accent = cssVar('--accent');
@@ -1118,9 +1187,18 @@
       const y = Math.round(scaleYL(v, dom, lay)) + 0.5;
       ctx.beginPath(); ctx.moveTo(lay.left, y); ctx.lineTo(lay.right, y); ctx.stroke();
     });
-    const { ticks: xTicks, spacing: xSp } = niceTicks(dom.xMin, dom.xMax, Math.max(3, Math.floor((lay.right - lay.left) / (lay.tickF * 7.5))));
-    xTicks.forEach(v => {
-      const x = Math.round(scaleX(v, dom, lay)) + 0.5;
+    // Graduations X : catégorielles (abscisse textuelle) ou numériques 1-2-5.
+    ctx.font = monoFont;
+    let xTickList;
+    if (catLabels) {
+      xTickList = categoricalXTicks(catLabels, dom, lay);
+    } else {
+      const r = niceTicks(dom.xMin, dom.xMax, Math.max(3, Math.floor((lay.right - lay.left) / (lay.tickF * 7.5))));
+      xTickList = r.ticks.map(v => ({ v, label: formatTick(v, r.spacing) }));
+    }
+    ctx.strokeStyle = gridColor;
+    xTickList.forEach(t => {
+      const x = Math.round(scaleX(t.v, dom, lay)) + 0.5;
       ctx.beginPath(); ctx.moveTo(x, lay.top); ctx.lineTo(x, lay.bottom); ctx.stroke();
     });
 
@@ -1150,12 +1228,12 @@
       });
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    xTicks.forEach(v => {
-      const x = scaleX(v, dom, lay);
+    xTickList.forEach(t => {
+      const x = scaleX(t.v, dom, lay);
       if (x < lay.left - 1 || x > lay.right + 1) return;
       ctx.beginPath(); ctx.moveTo(x, lay.bottom); ctx.lineTo(x, lay.bottom + 5); ctx.strokeStyle = axisColor; ctx.stroke();
       ctx.fillStyle = inkColor;
-      ctx.fillText(formatTick(v, xSp), x, lay.bottom + 8);
+      ctx.fillText(t.label, x, lay.bottom + 8);
     });
 
     // titre du graphe
@@ -1254,7 +1332,7 @@
 
     if (hoverInfo) {
       const s = hoverInfo.s;
-      const chipText = 'x=' + fmt3(s.x[hoverInfo.idx]) + '  y=' + fmt3(s.y[hoverInfo.idx]) + ' · ' + s.nom;
+      const chipText = 'x=' + xDisplay(s, s.x[hoverInfo.idx]) + '  y=' + fmt3(s.y[hoverInfo.idx]) + ' · ' + s.nom;
       ctx.font = monoFont;
       const textW = ctx.measureText(chipText).width;
       const chipW = textW + 16, chipH = lay.tickF + 8;
@@ -1338,7 +1416,7 @@
   const statusCoords = document.getElementById('status-coords');
   function updateStatus(hoverInfo) {
     if (hoverInfo) {
-      statusCoords.textContent = 'x = ' + fmt3(hoverInfo.s.x[hoverInfo.idx]) + '   y = ' + fmt3(hoverInfo.s.y[hoverInfo.idx]) + '   · ' + hoverInfo.s.nom;
+      statusCoords.textContent = 'x = ' + xDisplay(hoverInfo.s, hoverInfo.s.x[hoverInfo.idx]) + '   y = ' + fmt3(hoverInfo.s.y[hoverInfo.idx]) + '   · ' + hoverInfo.s.nom;
     } else {
       statusCoords.textContent = 'x = —      y = —';
     }
@@ -1509,7 +1587,16 @@
     analysis0.rawText = cfg.rawText;
 
     const numericIdxs = analysis0.numericFlags.map((f, i) => f ? i : -1).filter(i => i >= 0);
-    let xIdx = cfg.mode === 'edit' ? cfg.ds.xIdx : (numericIdxs[0] !== undefined ? numericIdxs[0] : 0);
+    let xIdx;
+    if (cfg.mode === 'edit') {
+      xIdx = cfg.ds.xIdx;
+    } else if (!analysis0.numericFlags[0] && numericIdxs.length) {
+      // 1re colonne textuelle + au moins une colonne numérique : on la propose
+      // comme abscisse discrète (cas « catégorie ; valeur »).
+      xIdx = 0;
+    } else {
+      xIdx = numericIdxs[0] !== undefined ? numericIdxs[0] : 0;
+    }
     let yChecked = {};
     analysis0.headers.forEach((h, i) => {
       if (i === xIdx) return;
@@ -1625,21 +1712,26 @@
     const colRow = document.createElement('div'); colRow.className = 'col-select-row';
     const xCol = document.createElement('div'); xCol.className = 'grow';
     xCol.appendChild(miniLabel('Colonne X'));
+    // Toute colonne peut servir d'abscisse : une colonne numérique donne un axe
+    // continu, une colonne textuelle un axe discret (catégories).
     analysis.headers.forEach((h, i) => {
       const line = document.createElement('div'); line.className = 'radio-line';
       const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'gc-xcol'; radio.id = 'gc-x-' + i;
       radio.checked = st.xIdx === i;
-      radio.disabled = !analysis.numericFlags[i];
       radio.addEventListener('change', () => {
         st.xIdx = i;
         if (st.yChecked[i] !== undefined) delete st.yChecked[i];
         renderImportModal();
       });
       const lbl = document.createElement('label'); lbl.htmlFor = 'gc-x-' + i; lbl.textContent = h;
-      if (!analysis.numericFlags[i]) lbl.style.opacity = '0.45';
       line.appendChild(radio); line.appendChild(lbl);
       xCol.appendChild(line);
     });
+    if (!analysis.numericFlags[st.xIdx]) {
+      const note = miniLabel('Abscisse textuelle : tracée comme des catégories discrètes.');
+      note.style.marginTop = '4px'; note.style.color = 'var(--accent)';
+      xCol.appendChild(note);
+    }
     colRow.appendChild(xCol);
 
     const yCol = document.createElement('div'); yCol.className = 'grow';
