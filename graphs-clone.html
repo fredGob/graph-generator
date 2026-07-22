@@ -171,6 +171,7 @@
   .popover {
     position: fixed; z-index: 60; background: var(--surface); border: 1px solid var(--border);
     border-radius: 6px; box-shadow: 0 8px 30px rgba(20,24,32,0.18); width: 240px; padding: 12px 14px;
+    max-height: calc(100vh - 70px); overflow-y: auto;
   }
   .popover .field:last-child { margin-bottom: 0; }
   .popover label.check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
@@ -305,6 +306,12 @@
     dragNow: null,
     showCrosshair: true,
     labelFontSize: 12,     // taille des libellés d'axes (ticks + titres), en px
+    title: '',             // titre du graphe (vide = masqué)
+    titleFontSize: 18,     // taille du titre du graphe, en px
+    axisTitleX: null,      // null = auto (nom de colonne) ; sinon texte imposé
+    axisTitleYL: null,     // idem pour l'axe Y gauche (auto = nom de série)
+    axisTitleYR: null,     // idem pour l'axe Y droite
+    legend: { show: false, x: null, y: null }, // x,y = position normalisée (0..1) dans la zone traçée ; null = coin haut-droit
     railCollapsed: false,
     importQueue: [],        // fichiers en attente d'import
     importState: null,      // état du dialogue en cours
@@ -473,6 +480,7 @@
     const decimal = analysis.decimal;
     const xIdx = meta.xIdx;
     const yIdxs = meta.yIdxs;
+    const xIsText = meta.xIsText;
     const xValsRaw = columnNumericValues(analysis.cols, xIdx, decimal);
     const ds = {
       id: meta.id || ('ds' + (state.nextDatasetNum++)),
@@ -483,6 +491,7 @@
       headers: analysis.headers.slice(),
       cols: analysis.cols,
       xIdx, yIdxs: yIdxs.slice(),
+      xIsText,
       expanded: true,
       series: [],
     };
@@ -899,6 +908,7 @@
   const ctx = canvas.getContext('2d');
   const graphArea = document.getElementById('graph-area');
   const emptyStateEl = document.getElementById('empty-state');
+  let lastLegendRect = null;   // {x,y,w,h} de la légende au dernier rendu, pour le glisser
 
   function resizeCanvas() {
     const rect = graphArea.getBoundingClientRect();
@@ -962,19 +972,46 @@
     return { tickF, titleF };
   }
 
+  // Titres d'axes effectifs : override utilisateur si défini, sinon valeur auto
+  // (nom de la colonne X, ou nom de la série quand un seul nom par axe).
+  function autoAxisNames() {
+    const vis = allSeries().filter(s => s.visible);
+    const xName = vis.length ? ((findDatasetOf(vis[0]) || {}).xName || '') : '';
+    const leftNames = [...new Set(vis.filter(s => s.axeY === 'gauche').map(s => s.nom))];
+    const rightNames = [...new Set(vis.filter(s => s.axeY === 'droite').map(s => s.nom))];
+    return {
+      x: xName,
+      yL: leftNames.length === 1 ? leftNames[0] : '',
+      yR: rightNames.length === 1 ? rightNames[0] : '',
+    };
+  }
+
+  function effectiveAxisTitles() {
+    const auto = autoAxisNames();
+    return {
+      x: state.axisTitleX == null ? auto.x : state.axisTitleX,
+      yL: state.axisTitleYL == null ? auto.yL : state.axisTitleYL,
+      yR: state.axisTitleYR == null ? auto.yR : state.axisTitleYR,
+    };
+  }
+
   function computeLayout(dom, hasRight) {
     const { w, h } = cssSize();
     const { tickF, titleF } = chartFonts();
+    const titles = effectiveAxisTitles();
     // marges verticales dérivées des polices, pour que les libellés ne soient jamais rognés
-    const top = titleF + 11;
-    const bottomPad = 8 + tickF + 6 + titleF + 6;
+    const graphTitleH = state.title.trim() ? state.titleFontSize + 10 : 0;
+    const top = 12 + graphTitleH;
+    const xTitleH = titles.x.trim() ? titleF + 6 : 0;
+    const bottomPad = 8 + tickF + 6 + xTitleH;
     const plotH = Math.max(10, h - top - bottomPad);
 
     ctx.font = tickF + 'px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-mono');
     const { ticks: yTicksL, spacing: spL } = niceTicks(dom.yMinL, dom.yMaxL, Math.max(3, Math.floor(plotH / (tickF * 4.5))));
     let maxLabelW = 0;
     yTicksL.forEach(v => { maxLabelW = Math.max(maxLabelW, ctx.measureText(formatTick(v, spL)).width); });
-    const left = MARGIN.leftBase + maxLabelW + MARGIN.tickPad;
+    const yLTitleW = titles.yL.trim() ? titleF + 6 : 0;
+    const left = MARGIN.leftBase + yLTitleW + maxLabelW + MARGIN.tickPad;
 
     let right = MARGIN.rightBase;
     let yTicksR = [], spR = 1;
@@ -983,7 +1020,8 @@
       yTicksR = res.ticks; spR = res.spacing;
       let maxLabelWR = 0;
       yTicksR.forEach(v => { maxLabelWR = Math.max(maxLabelWR, ctx.measureText(formatTick(v, spR)).width); });
-      right = MARGIN.rightBase + maxLabelWR + MARGIN.tickPad;
+      const yRTitleW = titles.yR.trim() ? titleF + 6 : 0;
+      right = MARGIN.rightBase + yRTitleW + maxLabelWR + MARGIN.tickPad;
     }
 
     const bottom = h - bottomPad;
@@ -1032,29 +1070,24 @@
     ctx.restore();
   }
 
+  // Recherche du point le plus proche du curseur, en distance écran (px).
+  // Balayage linéaire complet, sans hypothèse sur l'ordre des abscisses :
+  // les X peuvent être croissants, décroissants ou non monotones (ex. tracer une
+  // colonne « phase » décroissante en abscisse), et de signe quelconque. C'est
+  // indispensable pour pouvoir pointer n'importe quel point, y compris en zone
+  // négative ou sur une portion à forte pente.
   function nearestPoint(mx, my, dom, lay) {
     let best = null, bestDist = Infinity;
     allSeries().filter(s => s.visible).forEach(s => {
-      if (!s.x.length) return;
-      const xData = invertX(mx, dom, lay);
-      // recherche binaire de l'index le plus proche en X
-      let lo = 0, hi = s.x.length - 1;
-      if (xData <= s.x[0]) hi = 0;
-      else if (xData >= s.x[hi]) lo = hi;
-      else {
-        while (hi - lo > 1) {
-          const mid = (lo + hi) >> 1;
-          if (s.x[mid] < xData) lo = mid; else hi = mid;
-        }
-      }
-      [lo, hi].forEach(idx => {
-        if (idx < 0 || idx >= s.x.length) return;
-        const ys = s.axeY === 'droite' ? scaleYR : scaleYL;
-        const px = scaleX(s.x[idx], dom, lay);
-        const py = ys(s.y[idx], dom, lay);
+      const n = s.x.length;
+      if (!n) return;
+      const ys = s.axeY === 'droite' ? scaleYR : scaleYL;
+      for (let i = 0; i < n; i++) {
+        const px = scaleX(s.x[i], dom, lay);
+        const py = ys(s.y[i], dom, lay);
         const d = Math.hypot(px - mx, py - my);
-        if (d < bestDist) { bestDist = d; best = { s, idx, px, py }; }
-      });
+        if (d < bestDist) { bestDist = d; best = { s, idx: i, px, py }; }
+      }
     });
     return best;
   }
@@ -1125,16 +1158,37 @@
       ctx.fillText(formatTick(v, xSp), x, lay.bottom + 8);
     });
 
-    // titre axe X (nom de la première colonne X visible)
-    const xName = vis.length ? (findDatasetOf(vis[0]) || {}).xName : null;
-    ctx.font = sansFont; ctx.fillStyle = inkDim; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    if (xName) ctx.fillText(xName, (lay.left + lay.right) / 2, lay.bottom + 8 + lay.tickF + 6);
+    // titre du graphe
+    if (state.title.trim()) {
+      ctx.fillStyle = inkColor;
+      ctx.font = '600 ' + state.titleFontSize + 'px ' + cssVar('--font-sans');
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(state.title, (lay.left + lay.right) / 2, 8);
+    }
 
-    const leftNames = [...new Set(vis.filter(s => s.axeY === 'gauche').map(s => s.nom))];
-    const rightNames = [...new Set(vis.filter(s => s.axeY === 'droite').map(s => s.nom))];
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    if (leftNames.length === 1) ctx.fillText(leftNames[0], lay.left, lay.top - 6);
-    if (hasRight && rightNames.length === 1) { ctx.textAlign = 'right'; ctx.fillText(rightNames[0], lay.right, lay.top - 6); }
+    // titres des axes (override utilisateur ou nom auto)
+    const axTitles = effectiveAxisTitles();
+    ctx.font = sansFont; ctx.fillStyle = inkDim;
+    if (axTitles.x.trim()) {
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(axTitles.x, (lay.left + lay.right) / 2, lay.bottom + 8 + lay.tickF + 6);
+    }
+    if (axTitles.yL.trim()) {
+      ctx.save();
+      ctx.translate(12, (lay.top + lay.bottom) / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(axTitles.yL, 0, 0);
+      ctx.restore();
+    }
+    if (hasRight && axTitles.yR.trim()) {
+      ctx.save();
+      ctx.translate(lay.w - 12, (lay.top + lay.bottom) / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(axTitles.yR, 0, 0);
+      ctx.restore();
+    }
 
     // clip zone graphe
     ctx.save();
@@ -1196,6 +1250,8 @@
     }
     ctx.restore(); // fin clip
 
+    drawLegend(vis, lay, cssVar);
+
     if (hoverInfo) {
       const s = hoverInfo.s;
       const chipText = 'x=' + fmt3(s.x[hoverInfo.idx]) + '  y=' + fmt3(s.y[hoverInfo.idx]) + ' · ' + s.nom;
@@ -1223,6 +1279,52 @@
     ctx.arcTo(x, y + h, x, y, r);
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
+  }
+
+  // Légende : boîte listant les séries visibles (pastille couleur + nom).
+  // Position mémorisée en fraction (0..1) de la zone traçée ; null = coin haut-droit.
+  function drawLegend(vis, lay, cssVar) {
+    lastLegendRect = null;
+    if (!state.legend.show || !vis.length) return;
+    const items = vis.map(s => ({ label: s.nom, color: s.couleur, dash: DASH_PATTERNS[s.styleTrait] }));
+    const fs = Math.max(10, lay.tickF);
+    ctx.font = fs + 'px ' + cssVar('--font-sans');
+    const padX = 10, padY = 8, lineH = fs + 6, sw = 16, gap = 7;
+    let textW = 0;
+    items.forEach(it => { textW = Math.max(textW, ctx.measureText(it.label).width); });
+    const boxW = padX * 2 + sw + gap + textW;
+    const boxH = padY * 2 + items.length * lineH;
+    const plotW = lay.right - lay.left, plotH = lay.bottom - lay.top;
+    let bx, by;
+    if (state.legend.x == null || state.legend.y == null) {
+      bx = lay.right - boxW - 12; by = lay.top + 12;
+    } else {
+      bx = lay.left + state.legend.x * plotW;
+      by = lay.top + state.legend.y * plotH;
+    }
+    bx = Math.max(lay.left + 2, Math.min(bx, lay.right - boxW - 2));
+    by = Math.max(lay.top + 2, Math.min(by, lay.bottom - boxH - 2));
+
+    ctx.save();
+    ctx.fillStyle = cssVar('--surface');
+    ctx.globalAlpha = 0.92;
+    roundRect(bx, by, boxW, boxH, 5); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = cssVar('--border-strong'); ctx.lineWidth = 1;
+    roundRect(bx + 0.5, by + 0.5, boxW - 1, boxH - 1, 5); ctx.stroke();
+
+    items.forEach((it, i) => {
+      const cy = by + padY + i * lineH + lineH / 2;
+      ctx.strokeStyle = it.color; ctx.lineWidth = 2;
+      ctx.setLineDash(it.dash || []);
+      ctx.beginPath(); ctx.moveTo(bx + padX, cy); ctx.lineTo(bx + padX + sw, cy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = cssVar('--ink-1');
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(it.label, bx + padX + sw + gap, cy + 0.5);
+    });
+    ctx.restore();
+    lastLegendRect = { x: bx, y: by, w: boxW, h: boxH };
   }
 
   function findDatasetOf(series) {
@@ -1273,6 +1375,13 @@
   canvas.addEventListener('mousedown', (e) => {
     if (!state.datasets.length) return;
     const { mx, my } = localXY(e);
+    if (state.legend.show && lastLegendRect &&
+        mx >= lastLegendRect.x && mx <= lastLegendRect.x + lastLegendRect.w &&
+        my >= lastLegendRect.y && my <= lastLegendRect.y + lastLegendRect.h) {
+      state.dragStart = { mx, my, mode: 'legend', offx: mx - lastLegendRect.x, offy: my - lastLegendRect.y };
+      state.dragNow = { mx, my };
+      return;
+    }
     state.dragStart = { mx, my, mode: e.shiftKey ? 'box' : 'pan' };
     state.dragNow = { mx, my };
     if (state.dragStart.mode === 'pan') ensureView();
@@ -1299,6 +1408,14 @@
       v.xMin = dom.xMin + dxData; v.xMax = v.xMin + w0;
       v.yMinL = dom.yMinL + dyData; v.yMaxL = v.yMinL + h0;
       state.dragStart.mx = mx; state.dragStart.my = my;
+    } else if (state.dragStart.mode === 'legend') {
+      const dom = effectiveDomain();
+      const hasRight = allSeries().some(s => s.visible && s.axeY === 'droite');
+      const lay = computeLayout(dom, hasRight);
+      const plotW = lay.right - lay.left, plotH = lay.bottom - lay.top;
+      const bx = mx - state.dragStart.offx, by = my - state.dragStart.offy;
+      state.legend.x = plotW > 0 ? (bx - lay.left) / plotW : 0;
+      state.legend.y = plotH > 0 ? (by - lay.top) / plotH : 0;
     }
     renderChart();
   });
@@ -1614,15 +1731,98 @@
   }
 
   /* =========================================================
-     Export PNG
+     Export : PNG (image) ou HTML autonome interactif
   ========================================================= */
-  document.getElementById('btn-export').addEventListener('click', () => {
-    if (!state.datasets.length) return;
+  function exportPng() {
+    if (!state.datasets.length) { showSaveStatus('Rien à exporter', 3000); return; }
     const link = document.createElement('a');
     link.download = 'graphs-clone-export.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
-  });
+  }
+
+  // Construit une copie autonome de l'application avec le projet embarqué :
+  // le fichier obtenu s'ouvre seul dans un navigateur, rejoue le graphe
+  // interactif et peut lui-même être ré-enregistré. Aucun JSON séparé requis.
+  function buildInteractiveHtml() {
+    closeDatasetMenu(); closePopover();
+    // JSON du projet, protégé contre une fermeture prématurée de la balise script
+    const payload = JSON.stringify(serializeProject()).replace(/</g, '\\u003c');
+    // retirer un éventuel projet embarqué issu d'un export précédent, puis injecter le neuf
+    document.querySelectorAll('#embedded-project').forEach(el => el.remove());
+    const tag = document.createElement('script');
+    tag.type = 'application/json';
+    tag.id = 'embedded-project';
+    tag.textContent = payload;
+    // dans le <head> : ainsi il est analysé AVANT le script de l'app, qui le lit au chargement
+    document.head.appendChild(tag);
+    try {
+      return '<!doctype html>\n' + document.documentElement.outerHTML;
+    } finally {
+      tag.remove();
+    }
+  }
+
+  function downloadHtml(html) {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = 'graphs-clone.html';
+    link.href = url;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showSaveStatus('Fichier HTML téléchargé', 4000);
+  }
+
+  // Handle du fichier courant (API File System Access), mémorisé le temps de la session
+  // pour que « Enregistrer » réécrive ensuite le même fichier sans redemander.
+  let currentFileHandle = null;
+  const canWriteFiles = typeof window.showSaveFilePicker === 'function';
+
+  async function ensureWritePermission(handle) {
+    if (!handle.queryPermission) return true;
+    if (await handle.queryPermission({ mode: 'readwrite' }) === 'granted') return true;
+    return await handle.requestPermission({ mode: 'readwrite' }) === 'granted';
+  }
+
+  // « Enregistrer » : écrase le fichier courant. À la première sauvegarde de la session,
+  // demande où écrire (choisir le fichier ouvert pour l'écraser) ; ensuite, réécrit
+  // silencieusement le même fichier. Repli sur un téléchargement si l'API est absente/refusée.
+  async function saveToCurrentFile() {
+    if (!state.datasets.length) { showSaveStatus('Rien à enregistrer', 3000); return; }
+    const html = buildInteractiveHtml();
+    if (canWriteFiles) {
+      try {
+        if (!currentFileHandle) {
+          currentFileHandle = await window.showSaveFilePicker({
+            suggestedName: 'graphs-clone.html',
+            types: [{ description: 'Page HTML', accept: { 'text/html': ['.html', '.htm'] } }],
+          });
+        }
+        if (!(await ensureWritePermission(currentFileHandle))) {
+          showSaveStatus('Enregistrement refusé (permission)', 4000);
+          return;
+        }
+        const writable = await currentFileHandle.createWritable();
+        await writable.write(html);
+        await writable.close();
+        showSaveStatus('Enregistré : ' + currentFileHandle.name, 4000);
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; // annulé par l'utilisateur
+        currentFileHandle = null; // l'API a échoué (ex. file://) : on retombe sur le téléchargement
+      }
+    }
+    downloadHtml(html);
+  }
+
+  // « Enregistrer sous… » : force le choix d'un nouveau fichier, qui devient le fichier courant.
+  async function saveAsNewFile() {
+    currentFileHandle = null;
+    await saveToCurrentFile();
+  }
+
+  document.getElementById('btn-export').addEventListener('click', exportPng);
 
   /* =========================================================
      Projet : sérialisation, enregistrement, chargement
@@ -1643,6 +1843,12 @@
       paletteCursor: state.paletteCursor,
       showCrosshair: state.showCrosshair,
       labelFontSize: state.labelFontSize,
+      title: state.title,
+      titleFontSize: state.titleFontSize,
+      axisTitleX: state.axisTitleX,
+      axisTitleYL: state.axisTitleYL,
+      axisTitleYR: state.axisTitleYR,
+      legend: { show: state.legend.show, x: state.legend.x, y: state.legend.y },
       view: state.view ? { ...state.view } : null,
       selection: sel ? { datasetId: sel.ds.id, colIdx: sel.s.colIdx } : null,
       datasets: state.datasets.map(ds => ({
@@ -1683,6 +1889,16 @@
     state.paletteCursor = proj.paletteCursor || 0;
     state.showCrosshair = proj.showCrosshair !== false;
     state.labelFontSize = proj.labelFontSize || 12;
+    state.title = typeof proj.title === 'string' ? proj.title : '';
+    state.titleFontSize = proj.titleFontSize || 18;
+    state.axisTitleX = proj.axisTitleX === undefined ? null : proj.axisTitleX;
+    state.axisTitleYL = proj.axisTitleYL === undefined ? null : proj.axisTitleYL;
+    state.axisTitleYR = proj.axisTitleYR === undefined ? null : proj.axisTitleYR;
+    state.legend = {
+      show: !!(proj.legend && proj.legend.show),
+      x: proj.legend && typeof proj.legend.x === 'number' ? proj.legend.x : null,
+      y: proj.legend && typeof proj.legend.y === 'number' ? proj.legend.y : null,
+    };
     state.view = proj.view || null;
 
     state.selectedKey = null;
@@ -1750,7 +1966,9 @@
     e.stopPropagation();
     if (document.querySelector('.ds-menu')) { closeDatasetMenu(); return; }
     openMenuAt(e.currentTarget, [
-      { label: 'Enregistrer le projet…', action: saveProjectToFile },
+      { label: 'Enregistrer', action: saveToCurrentFile },
+      { label: 'Enregistrer sous…', action: saveAsNewFile },
+      { label: 'Exporter les données (JSON)…', action: saveProjectToFile },
       { label: 'Ouvrir un projet…', action: () => projectInput.click() },
       { label: 'Nouveau projet', danger: true, action: newProject },
     ]);
@@ -1851,6 +2069,89 @@
     sizeField.appendChild(sizeRange);
     pop.appendChild(sizeField);
 
+    // — Titre du graphe et des axes —
+    function mkTextField(labelText, value, placeholder, onInput) {
+      const f = document.createElement('div');
+      f.className = 'field';
+      const lab = document.createElement('div');
+      lab.className = 'field-label';
+      const t = document.createElement('span'); t.textContent = labelText;
+      lab.appendChild(t);
+      f.appendChild(lab);
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.className = 'ctl-input';
+      inp.value = value == null ? '' : value;
+      if (placeholder) inp.placeholder = placeholder;
+      inp.addEventListener('input', () => onInput(inp.value));
+      f.appendChild(inp);
+      pop.appendChild(f);
+      return inp;
+    }
+
+    const autoNames = autoAxisNames();
+    const hasRightAxis = allSeries().some(s => s.visible && s.axeY === 'droite');
+
+    // Titre du graphe (texte)
+    mkTextField('Titre du graphe', state.title, 'Sans titre', (v) => {
+      state.title = v;
+      renderChart();
+      markDirty();
+    });
+
+    // Taille du titre du graphe
+    const tSizeField = document.createElement('div');
+    tSizeField.className = 'field';
+    const tSizeLab = document.createElement('div'); tSizeLab.className = 'field-label';
+    const tSizeTxt = document.createElement('span'); tSizeTxt.textContent = 'Taille du titre';
+    const tSizeVal = document.createElement('span'); tSizeVal.className = 'val'; tSizeVal.textContent = state.titleFontSize + ' px';
+    tSizeLab.appendChild(tSizeTxt); tSizeLab.appendChild(tSizeVal);
+    tSizeField.appendChild(tSizeLab);
+    const tSizeRange = document.createElement('input');
+    tSizeRange.type = 'range'; tSizeRange.min = '12'; tSizeRange.max = '36'; tSizeRange.step = '1';
+    tSizeRange.value = state.titleFontSize;
+    tSizeRange.addEventListener('input', () => {
+      state.titleFontSize = parseInt(tSizeRange.value);
+      tSizeVal.textContent = state.titleFontSize + ' px';
+      renderChart();
+      markDirty();
+    });
+    tSizeField.appendChild(tSizeRange);
+    pop.appendChild(tSizeField);
+
+    // Titres des axes (vide = valeur automatique affichée en indice)
+    const setAxis = (key, v) => {
+      state[key] = v.trim() === '' ? null : v;
+      renderChart();
+      markDirty();
+    };
+    mkTextField('Titre axe X', state.axisTitleX, autoNames.x ? autoNames.x + ' (auto)' : 'auto', (v) => setAxis('axisTitleX', v));
+    mkTextField('Titre axe Y (gauche)', state.axisTitleYL, autoNames.yL ? autoNames.yL + ' (auto)' : 'auto', (v) => setAxis('axisTitleYL', v));
+    if (hasRightAxis) {
+      mkTextField('Titre axe Y (droite)', state.axisTitleYR, autoNames.yR ? autoNames.yR + ' (auto)' : 'auto', (v) => setAxis('axisTitleYR', v));
+    }
+
+    // Afficher la légende
+    const legField = document.createElement('div');
+    legField.className = 'field';
+    const legLabel = document.createElement('label');
+    legLabel.className = 'check';
+    const legChk = document.createElement('input');
+    legChk.type = 'checkbox'; legChk.checked = state.legend.show;
+    legChk.addEventListener('change', () => {
+      state.legend.show = legChk.checked;
+      renderChart();
+      markDirty();
+    });
+    legLabel.appendChild(legChk);
+    legLabel.appendChild(document.createTextNode('Afficher la légende'));
+    legField.appendChild(legLabel);
+    const legHint = document.createElement('div');
+    legHint.className = 'field-mini-label';
+    legHint.style.marginTop = '4px';
+    legHint.textContent = 'Glissez la légende sur le graphe pour la repositionner.';
+    legField.appendChild(legHint);
+    pop.appendChild(legField);
+
     // Croix au survol
     const crossField = document.createElement('div');
     crossField.className = 'field';
@@ -1899,9 +2200,17 @@
   /* =========================================================
      Init
   ========================================================= */
-  const restored = restoreAutosave();
+  // Un projet embarqué (export HTML autonome) est prioritaire sur l'autosave.
+  let restored = false;
+  const embeddedEl = document.getElementById('embedded-project');
+  if (embeddedEl && embeddedEl.textContent.trim()) {
+    try { applyProject(JSON.parse(embeddedEl.textContent)); restored = 'embedded'; }
+    catch (e) { /* charge utile corrompue : on ignore et on tente l'autosave */ }
+  }
+  if (!restored && restoreAutosave()) restored = 'autosave';
   renderAll();
-  if (restored) showSaveStatus('Session précédente restaurée', 5000);
+  if (restored === 'embedded') showSaveStatus('Graphe embarqué chargé', 5000);
+  else if (restored) showSaveStatus('Session précédente restaurée', 5000);
 })();
 </script>
 </body>
