@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Tuner — radio YouTube</title>
+<style>
+  :root{
+    --shell:#1d1a17; --panel:#2a2621; --brush:#3a352e;
+    --tungsten:#e8a33d; --tungsten-dim:#8a6224;
+    --ivory:#e6dfd2; --mute:#8d8477;
+    --display:"Bahnschrift","Arial Narrow",sans-serif;
+    --body:"Segoe UI",system-ui,sans-serif;
+    --mono:"Consolas","DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--shell);color:var(--ivory);font-family:var(--body);
+    display:flex;justify-content:center;padding:20px}
+  .set{width:100%;max-width:640px;background:var(--panel);border:1px solid #454038;
+    border-radius:6px;box-shadow:0 24px 60px rgba(0,0,0,.55);overflow:hidden}
+
+  header{display:flex;align-items:baseline;gap:14px;padding:16px 20px 12px;
+    background:linear-gradient(180deg,#332e28,#2a2621);border-bottom:1px solid #454038}
+  .brand{font-family:var(--display);font-size:20px;letter-spacing:.22em;text-transform:uppercase}
+  .model{font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:.1em}
+  header .model{margin-left:auto}
+
+  .config{border-bottom:1px solid #35302a;padding:0 20px}
+  .config summary{cursor:pointer;padding:12px 0;font-family:var(--mono);font-size:11px;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+  .config summary:hover{color:var(--ivory)}
+  .config[open] summary{color:var(--tungsten)}
+  .config .row{padding-bottom:4px}
+  .hint{font-family:var(--mono);font-size:11px;color:var(--mute);line-height:1.6;margin:8px 0 14px}
+  .hint code{color:var(--ivory)}
+
+  .step{padding:16px 20px 4px}
+  .step + .step{border-top:1px solid #35302a}
+  .deck{padding-bottom:16px}
+
+  .dial{margin-top:4px;padding:12px 14px;border:1px solid #454038;border-radius:3px;
+    background:repeating-linear-gradient(90deg,#26221d 0 2px,#2a2621 2px 4px)}
+  .glass{position:relative;height:40px;border-bottom:1px solid var(--tungsten-dim)}
+  .ticks{position:absolute;inset:auto 0 0 0;height:14px;opacity:.55;
+    background-image:repeating-linear-gradient(90deg,var(--tungsten-dim) 0 1px,transparent 1px 20px)}
+  .needle{position:absolute;bottom:-1px;left:0;width:2px;height:40px;background:var(--tungsten);
+    box-shadow:0 0 10px var(--tungsten);transition:left .25s linear}
+  .now{margin-top:10px;font-family:var(--display);font-size:17px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .clock{font-family:var(--mono);font-size:11px;color:var(--mute);margin-top:3px}
+
+  /* Le conteneur rogne l'affichage ; l'iframe garde ses 380x220 réels,
+     taille exigée par YouTube (minimum 200x200) pour autoriser la lecture. */
+  #stage{height:0;overflow:hidden;margin:0;line-height:0;background:#000}
+  #stage.shown{height:220px;margin:12px 0 14px;border:1px solid #454038;border-radius:3px}
+  #stage iframe{display:block;border:0}
+
+  .audiobar{display:flex;align-items:center;gap:10px;margin:12px 0 14px;padding:10px 12px;
+    background:#1a1714;border:1px solid #454038;border-radius:3px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+  .led{width:8px;height:8px;border-radius:50%;background:#4a443c}
+  .led.on{background:var(--tungsten);box-shadow:0 0 8px var(--tungsten)}
+
+  section{padding:0 20px 16px}
+  label{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--mute);margin-bottom:8px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  input[type=text]{flex:1 1 220px;min-width:0;background:#1a1714;border:1px solid #454038;
+    border-radius:3px;color:var(--ivory);font-family:var(--mono);font-size:13px;padding:10px 12px}
+  input[type=text]:focus{outline:2px solid var(--tungsten);outline-offset:1px}
+  button{font-family:var(--display);letter-spacing:.12em;text-transform:uppercase;font-size:13px;
+    background:var(--brush);color:var(--ivory);border:1px solid #4f4941;border-radius:3px;
+    padding:10px 16px;cursor:pointer}
+  button:hover{background:#463f37}
+  button:disabled{opacity:.4;cursor:default}
+  button:focus-visible{outline:2px solid var(--tungsten);outline-offset:2px}
+  .primary{background:var(--tungsten);color:#1d1a17;border-color:var(--tungsten);font-weight:600}
+  .primary:hover{background:#f4b455}
+
+  .transport{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .transport button{min-width:56px}
+  .vol{display:flex;align-items:center;gap:8px;margin-left:auto}
+  input[type=range]{width:110px;accent-color:var(--tungsten)}
+
+  .results{list-style:none;margin:0;padding:0;max-height:240px;overflow-y:auto}
+  .results li{border-bottom:1px solid #35302a}
+  .results button{width:100%;text-align:left;background:none;border:0;padding:10px 4px;
+    font-family:var(--body);font-size:13.5px;letter-spacing:0;text-transform:none;color:var(--ivory)}
+  .results button:hover{background:#332e28}
+  .results .chan{display:block;font-family:var(--mono);font-size:11px;color:var(--mute);margin-top:3px}
+
+  .queue{margin:14px 0 4px;font-family:var(--mono);font-size:11.5px;color:var(--mute);line-height:1.7}
+  .queue b{color:var(--tungsten);font-weight:600}
+  .status{margin:0 20px 18px;padding-bottom:0;padding-top:12px;border-top:1px solid #35302a;
+    font-family:var(--mono);font-size:11.5px;color:var(--mute);line-height:1.6}
+  .status b{color:var(--tungsten);font-weight:600}
+  .status code{color:var(--ivory);background:#1a1714;padding:1px 5px;border-radius:2px}
+  @media (prefers-reduced-motion:reduce){.needle{transition:none}}
+</style>
+</head>
+<body>
+<main class="set">
+  <header>
+    <span class="brand">Tuner</span>
+    <span class="model">RADIO GÉNÉRÉE LOCALEMENT</span>
+  </header>
+
+  <!-- 1. réglage unique, replié -->
+  <details class="config">
+    <summary>Clé API YouTube Data v3</summary>
+    <div class="row"><input type="text" id="key" placeholder="AIza…" spellcheck="false"></div>
+    <p class="hint">À saisir une fois par session, ou en dur dans <code>var API_KEY</code> en tête du script.</p>
+  </details>
+
+  <!-- 2. recherche -->
+  <section class="step">
+    <label for="q">1 · Cherche un titre</label>
+    <div class="row">
+      <input type="text" id="q" placeholder="Titre, artiste, album…" spellcheck="false">
+      <button class="primary" id="find">Chercher</button>
+    </div>
+  </section>
+
+  <!-- 3. résultats -->
+  <section class="step" id="resultsBlock" hidden>
+    <label>2 · Choisis le titre de départ</label>
+    <ul class="results" id="results"></ul>
+  </section>
+
+  <!-- 4. lecture -->
+  <section class="step deck" id="deck" hidden>
+    <label>3 · En lecture</label>
+
+    <div class="dial">
+      <div class="glass"><div class="ticks"></div><div class="needle" id="needle"></div></div>
+      <div class="now" id="now">—</div>
+      <div class="clock" id="clock">--:-- / --:--</div>
+    </div>
+
+    <div class="audiobar"><span class="led" id="led"></span><span id="mode">Mode audio</span></div>
+    <div id="stage"><div id="player"></div></div>
+
+    <div class="transport">
+      <button id="play">Play</button>
+      <button id="next">Suivant ▶▶</button>
+      <button id="mini">Afficher l'image</button>
+      <div class="vol">
+        <span class="model">VOL</span>
+        <input type="range" id="vol" min="0" max="100" value="60" aria-label="Volume">
+      </div>
+    </div>
+
+    <p class="queue" id="queue">File d'attente : <b>0</b> titre</p>
+  </section>
+
+  <p class="status" id="status">Renseigne la clé, puis lance une recherche.</p>
+</main>
+
+<script>
+(function(){
+  // ▼ Colle ta clé ici pour ne plus la retaper ▼
+  var API_KEY = "";
+
+  var player=null, ready=false, timer=null, watchdog=null;
+  var queue=[], played={}, lastChannel='', seedIdx=0;
+  var seed={artist:'',channel:'',topics:[]};
+  var $=function(id){return document.getElementById(id)};
+  function say(h){ $('status').innerHTML=h; }
+  function log(m){ console.log('[tuner]',m); }
+
+  /* ---------- API IFrame ---------- */
+  var tag=document.createElement('script');
+  tag.src='https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+
+  window.onYouTubeIframeAPIReady=function(){
+    player=new YT.Player('player',{
+      height:'220',width:'380',
+      playerVars:Object.assign({controls:1,playsinline:1,rel:0},
+        location.protocol.indexOf('http')===0 ? {origin:location.origin} : {}),
+      events:{
+        onReady:function(){
+          ready=true; player.setVolume(+$('vol').value);
+          if(location.protocol==='file:'){
+            say("<b>Attention : page ouverte en file://</b> — YouTube refusera la lecture (erreur 153). "+
+                "Sers ce fichier via <code>python -m http.server 8000</code>.");
+          } else { say("Lecteur prêt."); }
+        },
+        onStateChange:onState,
+        onError:onError
+      }
+    });
+  };
+
+  function onError(e){
+    log('erreur '+e.data);
+    if(e.data===153){
+      say("<b>Erreur 153 : page ouverte en file://</b><br>"+
+          "YouTube exige un en-tête Referer, qu'un fichier local n'envoie pas. "+
+          "Lance <code>python -m http.server 8000</code> dans ce dossier, "+
+          "puis ouvre <code>http://localhost:8000/radio.html</code>. Aucun titre ne jouera autrement.");
+      return;
+    }
+    say("Titre illisible (code "+e.data+"). Passage au suivant.");
+    next();
+  }
+
+  function onState(e){
+    log('état '+e.data);
+    $('play').textContent = (e.data===1) ? 'Pause' : 'Play';
+    $('led').className = (e.data===1) ? 'led on' : 'led';
+    if(e.data===1){ if(watchdog){clearTimeout(watchdog);watchdog=null;} startTick(); }
+    if(e.data===0){ stopTick(); next(); }
+  }
+
+  /* ---------- cadran ---------- */
+  function fmt(s){ s=Math.max(0,Math.floor(s||0));
+    return Math.floor(s/60)+':'+('0'+(s%60)).slice(-2); }
+  function startTick(){
+    stopTick();
+    timer=setInterval(function(){
+      if(!ready) return;
+      var d=player.getDuration()||0, t=player.getCurrentTime()||0;
+      $('needle').style.left=(d?(t/d*100):0)+'%';
+      $('clock').textContent=fmt(t)+' / '+fmt(d);
+      var v=player.getVideoData?player.getVideoData():null;
+      if(v&&v.title) $('now').textContent=v.title;
+    },500);
+  }
+  function stopTick(){ if(timer){clearInterval(timer);timer=null;} }
+
+  /* ---------- API Data ---------- */
+  function apiKey(){ return ($('key').value||API_KEY||'').trim(); }
+
+  function apiSearch(q,max){
+    var url='https://www.googleapis.com/youtube/v3/search'
+      +'?part=snippet&type=video&videoEmbeddable=true&videoCategoryId=10'
+      +'&maxResults='+(max||10)+'&q='+encodeURIComponent(q)+'&key='+encodeURIComponent(apiKey());
+    return fetch(url).then(function(r){
+      return r.json().then(function(j){
+        if(!r.ok) throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
+        return (j.items||[]).map(function(it){
+          return {id:it.id.videoId, title:decodeEnt(it.snippet.title),
+                  channel:decodeEnt(it.snippet.channelTitle)};
+        });
+      });
+    });
+  }
+  function apiVideos(ids){
+    var url='https://www.googleapis.com/youtube/v3/videos'
+      +'?part=topicDetails,contentDetails&id='+ids.slice(0,50).join(',')
+      +'&key='+encodeURIComponent(apiKey());
+    return fetch(url).then(function(r){
+      return r.json().then(function(j){
+        if(!r.ok) throw new Error((j.error&&j.error.message)||('HTTP '+r.status));
+        var map={};
+        (j.items||[]).forEach(function(it){
+          map[it.id]={ topics:topicsOf(it), seconds:durationOf(it) };
+        });
+        return map;
+      });
+    });
+  }
+
+  // topicCategories -> ["Alternative rock", "Rock music"] ; "Music" seul est inutile
+  function topicsOf(item){
+    var cats=(item.topicDetails&&item.topicDetails.topicCategories)||[];
+    return cats.map(function(u){
+      return decodeURIComponent(u.split('/wiki/')[1]||'').replace(/_/g,' ');
+    }).filter(function(t){ return t && t!=='Music'; });
+  }
+
+  // ISO 8601 (PT4M13S) -> secondes
+  function durationOf(item){
+    var d=(item.contentDetails&&item.contentDetails.duration)||'';
+    var m=d.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if(!m) return 0;
+    return (+m[1]||0)*3600 + (+m[2]||0)*60 + (+m[3]||0);
+  }
+
+  function decodeEnt(s){ var d=document.createElement('textarea'); d.innerHTML=s||''; return d.value; }
+
+  /* ---------- recherche manuelle ---------- */
+  if(API_KEY) $('key').value=API_KEY;
+  $('find').addEventListener('click',search);
+  $('q').addEventListener('keydown',function(e){ if(e.key==='Enter') search(); });
+
+  function search(){
+    if(!apiKey()){ say("Clé API manquante."); return; }
+    var q=($('q').value||'').trim();
+    if(!q){ say("Saisis quelque chose à chercher."); return; }
+    say("Recherche…");
+    apiSearch(q,10).then(function(items){
+      var ul=$('results'); ul.innerHTML='';
+      if(!items.length){ say("Aucun résultat."); return; }
+      items.forEach(function(it){
+        var li=document.createElement('li'), b=document.createElement('button');
+        b.innerHTML=it.title+'<span class="chan">'+it.channel+'</span>';
+        b.addEventListener('click',function(){ startStation(it); });
+        li.appendChild(b); ul.appendChild(li);
+      });
+      $('resultsBlock').hidden=false;
+      say("<b>"+items.length+"</b> résultats. Un clic démarre la station.");
+    }).catch(function(err){
+      say("Recherche impossible : "+err.message);
+    });
+  }
+
+  /* ---------- station ---------- */
+  function artistOf(t){
+    var s=(t||'').split(/\s[-–—]\s/)[0];
+    s=s.replace(/\(.*?\)|\[.*?\]/g,'').trim();
+    return s.length>1 ? s : '';
+  }
+
+  function startStation(track){
+    if(!ready){ say("Le lecteur n'est pas prêt."); return; }
+    $('deck').hidden=false;
+    queue=[]; played={};
+    seed.artist=artistOf(track.title)||track.channel;
+    seed.channel=track.channel;
+    seed.topics=[]; lastChannel=''; seedIdx=0;
+    playNow(track);
+    apiVideos([track.id]).then(function(map){
+      seed.topics=(map[track.id]&&map[track.id].topics)||[];
+      log('genres détectés : '+(seed.topics.join(', ')||'aucun'));
+      updateQueue();
+      refill();
+    }).catch(function(){ refill(); });
+  }
+
+  function playNow(track){
+    played[track.id]=1;
+    lastChannel=track.channel||'';
+    $('now').textContent=track.title;
+    player.loadVideoById(track.id);
+    player.setVolume(+$('vol').value);
+    if(watchdog) clearTimeout(watchdog);
+    watchdog=setTimeout(function(){
+      if(player.getPlayerState()!==1){
+        say("Le titre ne démarre pas tout seul. Clique sur play dans le cadre noir — si ça marche, c'est la lecture automatique du navigateur qui bloque.");
+      }
+    },4000);
+  }
+
+  // Amorces tournantes : artiste, puis genres, puis chaîne.
+  // L'artiste sort du tirage après le premier tour : la station dérive.
+  function seedList(){
+    var l=[];
+    if(seedIdx===0 && seed.artist) l.push(seed.artist);
+    seed.topics.slice(0,2).forEach(function(t){ l.push(t); });
+    if(seed.channel) l.push(seed.channel);
+    if(!l.length && seed.artist) l.push(seed.artist);
+    return l;
+  }
+
+  function refill(){
+    if(!apiKey()) return;
+    var list=seedList();
+    if(!list.length) return;
+    var q=list[seedIdx % list.length];
+    seedIdx++;
+    log('recharge sur « '+q+' »');
+
+    apiSearch(q,25).then(function(items){
+      var fresh=items.filter(function(it){
+        return !played[it.id] && !queue.some(function(x){return x.id===it.id});
+      });
+      if(!fresh.length){ updateQueue(); return; }
+
+      // 1 unité de quota pour qualifier les 25 résultats d'un coup
+      return apiVideos(fresh.map(function(x){return x.id})).then(function(meta){
+        var strict=[], loose=[];
+        fresh.forEach(function(it){
+          var m=meta[it.id]; if(!m) return;
+          if(m.seconds>600 || m.seconds<45) return;          // compilations et intros
+          if(it.channel===lastChannel) return;                // pas deux fois la même chaîne
+          it.topics=m.topics;
+          var common=m.topics.some(function(t){ return seed.topics.indexOf(t)>-1; });
+          (common?strict:loose).push(it);
+        });
+
+        // repli : si le filtrage par genre ne laisse rien, on relâche
+        var keep = strict.length>=3 ? strict : strict.concat(loose);
+        keep.sort(function(){ return Math.random()-.5; });
+        keep.forEach(function(it){ queue.push(it); });
+        updateQueue();
+        log('file : +'+keep.length+' ('+strict.length+' par genre)');
+        if(!keep.length && seedIdx<6) refill();
+      });
+    }).catch(function(err){ say("Recharge de la file impossible : "+err.message); });
+  }
+
+  function updateQueue(){
+    var lbl = seed.topics.length ? seed.topics.slice(0,2).join(' / ') : (seed.artist||'—');
+    $('queue').innerHTML='File d\'attente : <b>'+queue.length+'</b> titre'+(queue.length>1?'s':'')
+      +' · station <b>'+lbl+'</b>';
+  }
+
+  function next(){
+    if(queue.length<4) refill();
+    var t=queue.shift();
+    updateQueue();
+    if(!t){ say("File vide. Relance une recherche."); return; }
+    playNow(t);
+  }
+
+  /* ---------- contrôles ---------- */
+  $('play').addEventListener('click',function(){
+    if(!ready) return;
+    if(player.getPlayerState()===1) player.pauseVideo(); else player.playVideo();
+  });
+  $('next').addEventListener('click',next);
+  $('vol').addEventListener('input',function(){ if(ready) player.setVolume(+this.value); });
+  $('mini').addEventListener('click',function(){
+    var st=$('stage'), shown=st.classList.toggle('shown');
+    this.textContent = shown ? "Masquer l'image" : "Afficher l'image";
+    $('mode').textContent = shown ? "Image visible" : "Mode audio";
+  });
+
+})();
+</script>
+</body>
+</html>
